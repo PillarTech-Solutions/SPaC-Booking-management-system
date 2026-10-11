@@ -34,7 +34,9 @@ export default function Login({}) {
             padding: 'clamp(18px, 1.6vw, 28px)',
             boxSizing: 'border-box',
             paddingBottom: 20,
+            backgroundColor: '#FBFBF9',
             caretColor: 'transparent'
+
           }}
         >
           {/* Logo */}

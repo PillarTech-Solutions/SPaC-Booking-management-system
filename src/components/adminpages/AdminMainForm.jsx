@@ -6,6 +6,7 @@ import Bookings from './Bookings';
 import Reports from './Reports';
 import Accounts from './Accounts';
 import Logs from './Logs';
+import SettingsPage from './SettingsPage';
 import AddBookingModal from './AddBookingModal';
 import AdminProfileDropdown from './AdminProfileDropdown';
 import LogoutConfirmation from './LogoutConfirmation';
@@ -25,6 +26,7 @@ const PAGES = {
   REPORTS: Reports,
   ACCOUNTS: Accounts,
   LOGS: Logs,
+  SETTINGS: SettingsPage
 };
 
 export default function AdminMainForm() {
@@ -115,6 +117,7 @@ export default function AdminMainForm() {
                 type="button"
                 title="Settings"
                 className="text-white hover:text-[#ccff00] transition-colors p-1 cursor-pointer"
+                onClick={() => setActiveTab('SETTINGS')}
               >
                 <Settings className="w-5 h-5 stroke-[1.8]" />
               </button>

@@ -1,8 +1,10 @@
+
 import React, { useState, useRef } from 'react';
 import { Calendar, Bell, Settings, Menu, X, Plus } from 'lucide-react';
-// Adjust these paths to where your page files live
+
 import Dashboard from './Dashboard';
 import Bookings from './Bookings';
+import CalendarPage from './Calendar';
 import Reports from './Reports';
 import Accounts from './Accounts';
 import Logs from './Logs';
@@ -18,10 +20,10 @@ const TABS = [
   { id: 'LOGS', label: 'LOGS' },
 ];
 
-// Map each tab id to the page component it should show.
 const PAGES = {
   DASHBOARD: Dashboard,
   BOOKINGS: Bookings,
+  CALENDAR: CalendarPage,
   REPORTS: Reports,
   ACCOUNTS: Accounts,
   LOGS: Logs,
@@ -33,8 +35,8 @@ export default function AdminMainForm() {
   const [isAddBookingOpen, setIsAddBookingOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
-  const profileBtnRef = useRef(null);
 
+  const profileBtnRef = useRef(null);
   const ActivePage = PAGES[activeTab];
 
   const handleBookingAdded = (booking) => {
@@ -42,7 +44,6 @@ export default function AdminMainForm() {
     // TODO: save to your backend / refresh the Bookings list here
   };
 
-  // Runs only after the user confirms in the logout confirmation modal
   const handleLogout = () => {
     console.log('Logging out...');
     // TODO: clear auth/session and redirect to login here
@@ -55,7 +56,7 @@ export default function AdminMainForm() {
     >
       {/* Header */}
       <header className="bg-[#121212] text-white sticky top-0 z-50 h-[105px] flex flex-col justify-between shrink-0 shadow-sm">
-        {/* Top bar (64px) */}
+        {/* Top bar */}
         <div className="h-[64px] w-full flex items-center">
           <div className="max-w-[1520px] w-full mx-auto px-5 sm:px-10 flex items-center justify-between">
             {/* Logo */}
@@ -77,9 +78,8 @@ export default function AdminMainForm() {
               />
             </div>
 
-            {/* Utility cluster: Add Booking Button + Vertical separator + Icons & Profile */}
+            {/* Utility buttons and profile */}
             <div className="flex items-center gap-3 sm:gap-5">
-              {/* Add Booking Button: opens the Add Booking modal */}
               <button
                 type="button"
                 onClick={() => setIsAddBookingOpen(true)}
@@ -89,19 +89,19 @@ export default function AdminMainForm() {
                 <span>Add Booking</span>
               </button>
 
-              {/* Vertical separator before Calendar */}
               <div className="h-6 w-[1px] bg-[#d1d5db]/50 shrink-0" />
 
-              {/* Calendar */}
+              {/* Calendar: opens Calendar.jsx */}
               <button
                 type="button"
                 title="Calendar"
+                aria-label="Open calendar"
+                onClick={() => setActiveTab('CALENDAR')}
                 className="text-white hover:text-[#ccff00] transition-colors p-1 cursor-pointer"
               >
                 <Calendar className="w-5 h-5 stroke-[1.8]" />
               </button>
 
-              {/* Notifications */}
               <button
                 type="button"
                 title="Notifications"
@@ -110,7 +110,6 @@ export default function AdminMainForm() {
                 <Bell className="w-5 h-5 stroke-[1.8]" />
               </button>
 
-              {/* Settings */}
               <button
                 type="button"
                 title="Settings"
@@ -119,7 +118,7 @@ export default function AdminMainForm() {
                 <Settings className="w-5 h-5 stroke-[1.8]" />
               </button>
 
-              {/* Profile avatar + dropdown (relative so the dropdown anchors to it) */}
+              {/* Profile avatar and dropdown */}
               <div className="relative ml-1">
                 <button
                   ref={profileBtnRef}
@@ -153,21 +152,25 @@ export default function AdminMainForm() {
                 className="md:hidden text-white ml-2 p-1 cursor-pointer"
                 aria-label="Toggle menu"
               >
-                {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+                {mobileMenuOpen ? (
+                  <X className="w-6 h-6" />
+                ) : (
+                  <Menu className="w-6 h-6" />
+                )}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Divider (1px, #d1d5db) */}
         <div className="h-[1px] w-full bg-[#d1d5db]" />
 
-        {/* Tabs bar (40px) */}
+        {/* Desktop tabs */}
         <div className="h-[40px] w-full flex items-center">
           <div className="max-w-[1520px] w-full mx-auto px-5 sm:px-10 h-full flex items-center">
             <nav className="hidden md:flex items-center gap-10 h-full overflow-x-auto">
               {TABS.map((tab) => {
                 const isActive = activeTab === tab.id;
+
                 return (
                   <button
                     key={tab.id}
@@ -198,6 +201,7 @@ export default function AdminMainForm() {
           <div className="md:hidden absolute top-[105px] left-0 right-0 bg-[#121212] border-t border-neutral-800 px-6 py-4 space-y-2 shadow-xl z-50">
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
+
               return (
                 <button
                   key={tab.id}
@@ -220,7 +224,7 @@ export default function AdminMainForm() {
         )}
       </header>
 
-      {/* Main content: renders the page that matches the active tab */}
+      {/* Main content */}
       <main className="flex-1 w-full max-w-[1520px] mx-auto px-5 sm:px-10 py-5 sm:py-6 flex flex-col">
         <div id={`tab-${activeTab.toLowerCase()}`} className="w-full flex-1">
           {ActivePage ? (
@@ -242,7 +246,7 @@ export default function AdminMainForm() {
         </div>
       </footer>
 
-      {/* Add Booking modal: mounted only while open so the form resets each time */}
+      {/* Add Booking modal */}
       {isAddBookingOpen && (
         <AddBookingModal
           onClose={() => setIsAddBookingOpen(false)}
@@ -250,7 +254,7 @@ export default function AdminMainForm() {
         />
       )}
 
-      {/* Logout confirmation: opened from the profile dropdown's Logout button */}
+      {/* Logout confirmation */}
       {isLogoutConfirmOpen && (
         <LogoutConfirmation
           onClose={() => setIsLogoutConfirmOpen(false)}

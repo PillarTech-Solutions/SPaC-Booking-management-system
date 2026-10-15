@@ -11,6 +11,7 @@ export default function AdminProfileDropdown({
     initials: 'AC',
   },
   onLogout,
+  onViewProfile, // new
   triggerRef, // ref to the avatar button, so clicking it isn't treated as an "outside" click
 }) {
   const dropdownRef = useRef(null);
@@ -50,21 +51,31 @@ export default function AdminProfileDropdown({
       style={{ fontFamily: "'Be Vietnam Pro', sans-serif" }}
       className="absolute right-0 top-full mt-2 w-56 bg-white border border-neutral-200 rounded-xl shadow-lg p-4 z-[60] animate-in fade-in zoom-in-95 duration-150 origin-top-right flex flex-col items-center text-center"
     >
-      {/* Picture (clean, moderately sized avatar) */}
-      <div className="w-14 h-14 rounded-full overflow-hidden bg-neutral-100 border border-neutral-200 flex items-center justify-center relative mb-2.5">
-        <span className="text-sm font-semibold text-neutral-500 absolute">
-          {user.initials || 'AC'}
-        </span>
-        {user.avatar && (
-          <img
-            src={user.avatar}
-            alt={user.name}
-            className="w-full h-full object-cover relative z-10"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        )}
+      <div
+        onClick={() => {
+          onViewProfile?.();
+          onClose?.();
+        }}
+        className="w-full flex flex-col items-center cursor-pointer"
+      >
+
+        {/* Picture (clean, moderately sized avatar) */}
+        <div className="w-14 h-14 rounded-full overflow-hidden bg-neutral-100 border border-neutral-200 flex items-center justify-center relative mb-2.5">
+          <span className="text-sm font-semibold text-neutral-500 absolute">
+            {user.initials || 'AC'}
+          </span>
+          {user.avatar && (
+            <img
+              src={user.avatar}
+              alt={user.name}
+              className="w-full h-full object-cover relative z-10"
+              onError={(e) => {
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          )}
+        </div>
+
       </div>
 
       {/* Full Name */}

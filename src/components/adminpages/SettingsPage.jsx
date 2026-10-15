@@ -16,7 +16,8 @@ import {
   X,
   MoreHorizontal,
   RotateCw,
-  Trash2,
+  Trash2,  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 /* ----------------------------- Design tokens ----------------------------- */
@@ -579,6 +580,7 @@ function RowActionMenu({ label, onEdit, onDelete }) {
 
 /* ---------------------------- Tab: Availability -------------------------- */
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const BLOCKED_PER_PAGE = 10;
 
 const INITIAL_AVAILABILITY = {
   operatingDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
@@ -609,6 +611,14 @@ function AvailabilityTab() {
   const [data, setData] = useState(INITIAL_AVAILABILITY);
   const [isAddBlockedOpen, setIsAddBlockedOpen] = useState(false);
   const [editingBlocked, setEditingBlocked] = useState(null);
+  const [blockedPage, setBlockedPage] = useState(1);
+
+  const blockedTotalPages = Math.max(1, Math.ceil(data.blocked.length / BLOCKED_PER_PAGE));
+  // Clamp so deleting the last row on the last page doesn't leave an empty page
+  const safeBlockedPage = Math.min(blockedPage, blockedTotalPages);
+  const blockedStart = (safeBlockedPage - 1) * BLOCKED_PER_PAGE;
+  const paginatedBlocked = data.blocked.slice(blockedStart, blockedStart + BLOCKED_PER_PAGE);
+
 
   const addBlocked = ({ date, startTime, endTime, reason }) =>
     setData((d) => ({
@@ -690,7 +700,7 @@ function AvailabilityTab() {
               </tr>
             </thead>
             <tbody>
-              {data.blocked.map((b) => (
+              {paginatedBlocked.map((b) => (
                 <tr key={b.id} className="border-b border-[#c4c9ac] hover:bg-neutral-50/70 transition-colors">
                   <td className="py-2 px-3 sm:px-4 text-xs text-[#121212]">
                     {formatBlockedDate(b.date)}, {formatBlockedTime(b.startTime)} – {formatBlockedTime(b.endTime)}
@@ -717,6 +727,71 @@ function AvailabilityTab() {
             </tbody>
           </table>
         </div>
+
+        {/* PAGINATION BAR */}
+        <div className="pt-1 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-[#5f5e5e]">
+          <div>
+            Showing{" "}
+            <span className="font-bold text-[#121212]">
+              {data.blocked.length === 0 ? 0 : blockedStart + 1}
+            </span>{" "}
+            to{" "}
+            <span className="font-bold text-[#121212]">
+              {Math.min(blockedStart + BLOCKED_PER_PAGE, data.blocked.length)}
+            </span>{" "}
+            of <span className="font-bold text-[#121212]">{data.blocked.length}</span> blocked dates
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={safeBlockedPage <= 1}
+              onClick={() => setBlockedPage(safeBlockedPage - 1)}
+              className={`p-1 rounded-md border border-[#121212] transition-colors ${
+                safeBlockedPage <= 1
+                  ? "opacity-30 cursor-not-allowed text-neutral-400 border-neutral-300"
+                  : "hover:bg-neutral-100 text-[#121212] cursor-pointer"
+              }`}
+              title="Previous page"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 stroke-[2]" />
+            </button>
+
+            {Array.from({ length: blockedTotalPages }).map((_, idx) => {
+              const pageNum = idx + 1;
+              const isActive = safeBlockedPage === pageNum;
+              return (
+                <button
+                  key={pageNum}
+                  type="button"
+                  onClick={() => setBlockedPage(pageNum)}
+                  className={`min-w-[28px] h-7 px-1 rounded-md text-xs font-semibold flex items-center justify-center transition-all cursor-pointer ${
+                    isActive
+                      ? "bg-[#121212] text-[#ccff00] font-bold shadow-2xs"
+                      : "border border-[#121212]/30 text-[#121212] hover:bg-neutral-100"
+                  }`}
+                >
+                  {pageNum}
+                </button>
+              );
+            })}
+
+            <button
+              type="button"
+              disabled={safeBlockedPage >= blockedTotalPages}
+              onClick={() => setBlockedPage(safeBlockedPage + 1)}
+              className={`p-1 rounded-md border border-[#121212] transition-colors ${
+                safeBlockedPage >= blockedTotalPages
+                  ? "opacity-30 cursor-not-allowed text-neutral-400 border-neutral-300"
+                  : "hover:bg-neutral-100 text-[#121212] cursor-pointer"
+              }`}
+              title="Next page"
+            >
+              <ChevronRight className="w-3.5 h-3.5 stroke-[2]" />
+            </button>
+          </div>
+        </div>
+        
       </section>
 
       <SettingsPageAddUnavailableSched

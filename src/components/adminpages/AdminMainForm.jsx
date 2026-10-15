@@ -9,6 +9,7 @@ import Logs from './Logs';
 import SettingsPage from './SettingsPage';
 import AddBookingModal from './AddBookingModal';
 import AdminProfileDropdown from './AdminProfileDropdown';
+import Profile from './Profile';
 import LogoutConfirmation from './LogoutConfirmation';
 
 const TABS = [
@@ -26,7 +27,8 @@ const PAGES = {
   REPORTS: Reports,
   ACCOUNTS: Accounts,
   LOGS: Logs,
-  SETTINGS: SettingsPage
+  SETTINGS: SettingsPage,
+  PROFILE: Profile,
 };
 
 export default function AdminMainForm() {
@@ -145,6 +147,7 @@ export default function AdminMainForm() {
                   isOpen={isProfileOpen}
                   onClose={() => setIsProfileOpen(false)}
                   onLogout={() => setIsLogoutConfirmOpen(true)}
+                  onViewProfile={() => setActiveTab('PROFILE')} 
                   triggerRef={profileBtnRef}
                 />
               </div>
@@ -227,7 +230,7 @@ export default function AdminMainForm() {
       <main className="flex-1 w-full max-w-[1520px] mx-auto px-5 sm:px-10 py-5 sm:py-6 flex flex-col">
         <div id={`tab-${activeTab.toLowerCase()}`} className="w-full flex-1">
           {ActivePage ? (
-            <ActivePage />
+            <ActivePage onLogout={() => setIsLogoutConfirmOpen(true)} />
           ) : (
             <div className="py-24 text-center text-sm text-neutral-500">
               The {activeTab.toLowerCase()} page isn't built yet.

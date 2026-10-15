@@ -68,6 +68,8 @@ export default function SettingsPageAddUnavailableSched({
   closingTime = "22:00",
 }) {
   const today = new Date();
+  // Midnight today: dates before this are not selectable
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
   // Date
   const [selectedDate, setSelectedDate] = useState(null); // { year, month, dayNumber }
@@ -174,10 +176,15 @@ export default function SettingsPageAddUnavailableSched({
   const endSlots = timeSlots.slice(1);
   const rangeLabel = `${timeSlots[0].label} – ${timeSlots[timeSlots.length - 1].label}`;
 
+  // True when the calendar is showing the current month (can't go back further)
+  const isCurrentViewMonth =
+    viewYear === todayStart.getFullYear() && viewMonth === todayStart.getMonth();
+
   if (!isOpen) return null;
 
   const handlePrevMonth = (e) => {
     e.stopPropagation();
+    if (isCurrentViewMonth) return;
     if (viewMonth === 0) {
       setViewMonth(11);
       setViewYear((y) => y - 1);
@@ -199,6 +206,8 @@ export default function SettingsPageAddUnavailableSched({
   const handleSelectDay = (dayObj) => {
     // Normalize filler days from the previous/next month
     const real = new Date(dayObj.year, dayObj.month, dayObj.dayNumber);
+    // Safety net: never allow a past date
+    if (real < todayStart) return;
     const picked = { year: real.getFullYear(), month: real.getMonth(), dayNumber: real.getDate() };
     setSelectedDate(picked);
     setDateDisplay(`${pad(picked.dayNumber)}/${pad(picked.month + 1)}/${picked.year}`);
@@ -311,7 +320,12 @@ export default function SettingsPageAddUnavailableSched({
                     <button
                       type="button"
                       onClick={handlePrevMonth}
-                      className="p-1 hover:bg-[#fbfaf1] rounded-lg text-[#121212] transition-colors cursor-pointer"
+                      disabled={isCurrentViewMonth}
+                      className={`p-1 rounded-lg text-[#121212] transition-colors ${
+                        isCurrentViewMonth
+                          ? "opacity-30 cursor-not-allowed"
+                          : "hover:bg-[#fbfaf1] cursor-pointer"
+                      }`}
                       title="Previous month"
                     >
                       <ChevronLeft className="w-4 h-4" />
@@ -340,18 +354,22 @@ export default function SettingsPageAddUnavailableSched({
                         selectedDate.year === d.year &&
                         selectedDate.month === d.month &&
                         selectedDate.dayNumber === d.dayNumber;
+                      const isPast = new Date(d.year, d.month, d.dayNumber) < todayStart;
 
                       return (
                         <button
                           key={`${d.year}-${d.month}-${d.dayNumber}-${index}`}
                           type="button"
+                          disabled={isPast}
                           onClick={() => handleSelectDay(d)}
-                          className={`w-6.5 h-6.5 rounded-lg flex items-center justify-center text-[11px] font-medium transition-all cursor-pointer ${
-                            isSelected
-                              ? "bg-[#121212] text-[#ccff00] font-bold shadow-xs"
+                          className={`w-6.5 h-6.5 rounded-lg flex items-center justify-center text-[11px] font-medium transition-all ${
+                            isPast
+                              ? "text-neutral-300 cursor-not-allowed line-through"
+                              : isSelected
+                              ? "bg-[#121212] text-[#ccff00] font-bold shadow-xs cursor-pointer"
                               : d.isCurrentMonth
-                              ? "text-[#121212] hover:bg-[#fbfaf1] hover:font-bold"
-                              : "text-neutral-300 hover:text-neutral-400"
+                              ? "text-[#121212] hover:bg-[#fbfaf1] hover:font-bold cursor-pointer"
+                              : "text-neutral-300 hover:text-neutral-400 cursor-pointer"
                           }`}
                         >
                           {d.dayNumber}

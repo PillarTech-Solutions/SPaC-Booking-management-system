@@ -1,8 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Calendar, ChevronDown, MoreHorizontal, ChevronLeft, ChevronRight, RotateCcw, Check } from 'lucide-react';
 import BookingsTblMenu from './BookingsTblMenu';
+import BookingsViewModal from './BookingsViewModal';
+import BookingsRescheduleModal from './BookingsRescheduleModal';
+import BookingsCancelModal from './BookingsCancelModal';
 
-const INITIAL_BOOKINGS = [
+export const INITIAL_BOOKINGS = [
   { ref: 'CR-1006', customer: 'Alyssa Cruz', date: 'Aug 27, 2026', time: '6:00 PM – 7:00 PM', pax: '4', amount: '₱ 300', status: 'Reserved' },
   { ref: 'CR-1007', customer: 'Crystal Florano', date: 'Aug 28, 2026', time: '6:00 AM – 8:00 AM', pax: '4', amount: '₱ 400', status: 'Reserved' },
   { ref: 'CR-1008', customer: 'Rovic Rosales', date: 'Aug 29, 2026', time: '10:00 AM – 12:00 PM', pax: '9', amount: '₱ 500', status: 'Reserved' },
@@ -35,7 +38,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function Bookings() {
-  const [bookings] = useState(INITIAL_BOOKINGS);
+  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
@@ -49,6 +52,19 @@ export default function Bookings() {
   // Row action (kebab) menu state: which booking it belongs to + where its button is on screen
   const [openMenu, setOpenMenu] = useState(null); // { booking, rect } | null
   const pressedWhileOpenRef = useRef(false);
+
+  // View modal state: the booking currently being viewed (null = modal closed)
+  const [viewBooking, setViewBooking] = useState(null);
+
+  // Reschedule modal state: the booking being rescheduled (null = modal closed),
+  // and whether it was opened from inside the View modal (so the left button reads "Back")
+  const [rescheduleBooking, setRescheduleBooking] = useState(null);
+  const [rescheduleFromView, setRescheduleFromView] = useState(false);
+
+  // Cancel modal state: the booking being cancelled (null = modal closed),
+  // and whether it was opened from inside the View modal (so the left button reads "Back")
+  const [cancelBooking, setCancelBooking] = useState(null);
+  const [cancelFromView, setCancelFromView] = useState(false);
 
   // Pagination state: 10 rows per page
   const [currentPage, setCurrentPage] = useState(1);
@@ -197,19 +213,75 @@ export default function Bookings() {
     });
   };
 
+  // Open the view modal for the chosen booking
   const handleViewBooking = (booking) => {
-    console.log('View booking:', booking);
-    // TODO: open a booking details modal
+    setViewBooking(booking);
   };
 
+  const closeViewModal = () => setViewBooking(null);
+
+  // Reschedule opened from the kebab menu: left button reads "Close"
   const handleRescheduleBooking = (booking) => {
-    console.log('Reschedule booking:', booking);
-    // TODO: open a reschedule modal
+    setRescheduleFromView(false);
+    setRescheduleBooking(booking);
   };
 
+  // Reschedule opened from inside the View modal: left button reads "Back"
+  // (the View modal closes itself right before calling this)
+  const handleRescheduleFromView = (booking) => {
+    setRescheduleFromView(true);
+    setRescheduleBooking(booking);
+  };
+
+  const closeRescheduleModal = () => {
+    setRescheduleBooking(null);
+    setRescheduleFromView(false);
+  };
+
+  // "Back": close the reschedule modal and return to the View modal for the same booking
+  const handleBackFromReschedule = () => {
+    setViewBooking(rescheduleBooking);
+    setRescheduleBooking(null);
+    setRescheduleFromView(false);
+  };
+
+  // Apply the new date/time to the booking in the table
+  const handleConfirmReschedule = (updated) => {
+    setBookings((prev) =>
+      prev.map((b) => (b.ref === updated.ref ? { ...b, date: updated.date, time: updated.time } : b))
+    );
+  };
+
+  // Cancel opened from the kebab menu: left button reads "Close"
   const handleCancelBooking = (booking) => {
-    console.log('Cancel booking:', booking);
-    // TODO: confirm, then set the booking status to Cancelled in your backend/state
+    setCancelFromView(false);
+    setCancelBooking(booking);
+  };
+
+  // Cancel opened from inside the View modal: left button reads "Back"
+  // (the View modal closes itself right before calling this)
+  const handleCancelFromView = (booking) => {
+    setCancelFromView(true);
+    setCancelBooking(booking);
+  };
+
+  const closeCancelModal = () => {
+    setCancelBooking(null);
+    setCancelFromView(false);
+  };
+
+  // "Back": close the cancel modal and return to the View modal for the same booking
+  const handleBackFromCancel = () => {
+    setViewBooking(cancelBooking);
+    setCancelBooking(null);
+    setCancelFromView(false);
+  };
+
+  // Set the booking's status to Cancelled in the table
+  const handleConfirmCancel = (updated) => {
+    setBookings((prev) =>
+      prev.map((b) => (b.ref === updated.ref ? { ...b, status: 'Cancelled' } : b))
+    );
   };
 
   // Filter Bookings logic
@@ -504,7 +576,7 @@ export default function Bookings() {
           </div>
         </div>
 
-        {/* Bookings Table: Comfortable breathing room with clean typography */}
+        {/* Bookings Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[760px]">
             <thead>
@@ -604,7 +676,7 @@ export default function Bookings() {
           </table>
         </div>
 
-        {/* Pagination Bar: Single clean separator line from last table row above */}
+        {/* Pagination Bar */}
         <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs text-[#5f5e5e]">
           <div>
             Showing{' '}
@@ -693,6 +765,35 @@ export default function Bookings() {
           </div>
         </div>
       )}
+
+      {/* View booking modal: its Reschedule / Cancel Booking buttons open those modals in "Back" mode */}
+      <BookingsViewModal
+        isOpen={Boolean(viewBooking)}
+        booking={viewBooking}
+        onClose={closeViewModal}
+        onReschedule={handleRescheduleFromView}
+        onCancel={handleCancelFromView}
+      />
+
+      {/* Reschedule modal: "Close" from the kebab menu, "Back" when opened from the View modal */}
+      <BookingsRescheduleModal
+        isOpen={Boolean(rescheduleBooking)}
+        booking={rescheduleBooking}
+        fromView={rescheduleFromView}
+        onClose={closeRescheduleModal}
+        onBack={handleBackFromReschedule}
+        onConfirmReschedule={handleConfirmReschedule}
+      />
+
+      {/* Cancel modal: "Close" from the kebab menu, "Back" when opened from the View modal */}
+      <BookingsCancelModal
+        isOpen={Boolean(cancelBooking)}
+        booking={cancelBooking}
+        fromView={cancelFromView}
+        onClose={closeCancelModal}
+        onBack={handleBackFromCancel}
+        onConfirmCancel={handleConfirmCancel}
+      />
     </div>
   );
 }

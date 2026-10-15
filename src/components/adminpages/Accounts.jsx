@@ -10,6 +10,9 @@ import {
   UserPlus,
 } from 'lucide-react';
 import AddStaffAccount from './AddStaffAccount';
+import AccountsTblMenu from './AccountsTblMenu';
+import AccountsViewModal from './AccountsViewModal';
+import AccountsEditModal from './AccountsEditModal';
 
 const INITIAL_ACCOUNTS = [
   { id: 'ACC-1001', name: 'Alyssa Cruz', email: 'alyssa.cruz@saranay.ph', role: 'Manager', contact: '+63 917 842 1923', status: 'Active', dateAdded: 'Aug 10, 2026', dateCreated: 'Aug 10, 2026' },
@@ -55,6 +58,19 @@ export default function Accounts() {
   // Add Staff Account modal state
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
 
+  // Row action menu: stores the ID of the account whose menu is open (or null)
+  const [openMenuId, setOpenMenuId] = useState(null);
+  // View modal: stores the account being viewed (or null when closed)
+  const [viewAccount, setViewAccount] = useState(null);
+
+  // Edit modal: stores the account being edited (or null when closed)
+  const [editAccount, setEditAccount] = useState(null);
+  // True when the Edit modal was opened from inside the View modal (shows "Back" instead of "Close")
+  const [editOpenedFromView, setEditOpenedFromView] = useState(false);
+
+  // Position of the trigger button for the open menu (used for fixed positioning)
+  const [menuAnchorRect, setMenuAnchorRect] = useState(null);
+
   // Pagination state: 10 rows per page
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -78,6 +94,11 @@ export default function Accounts() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Close any open row menu when page or filters change
+  useEffect(() => {
+    setOpenMenuId(null);
+  }, [currentPage, searchQuery, statusFilter, roleFilter]);
 
   // Receive the new account from the modal and add it to the table
   const handleAddAccount = (newAccountData) => {
@@ -184,6 +205,56 @@ export default function Accounts() {
     setRoleFilter(id);
     setIsRoleDropdownOpen(false);
     setCurrentPage(1);
+  };
+
+  const handleToggleMenu = (event, accountId) => {
+    if (openMenuId === accountId) {
+      setOpenMenuId(null);
+      return;
+    }
+    setMenuAnchorRect(event.currentTarget.getBoundingClientRect());
+    setOpenMenuId(accountId);
+  };
+
+  const handleViewAccount = (account) => {
+    setViewAccount(account);
+  };
+
+  const handleSendResetPassword = (account) => {
+    // TODO: call your backend to send the reset password link
+    console.log('Send reset password link to:', account.email);
+  };
+
+  // Edit clicked from the table's row menu
+  const handleEditAccount = (account) => {
+    setEditOpenedFromView(false);
+    setEditAccount(account);
+  };
+
+  // Edit clicked from inside the View modal
+  const handleEditFromView = (account) => {
+    setEditOpenedFromView(true);
+    setEditAccount(account);
+  };
+
+  // "Back" in the Edit modal: return to the View modal for the same account
+  const handleBackToView = (account) => {
+    setEditAccount(null);
+    setEditOpenedFromView(false);
+    setViewAccount(account);
+  };
+
+  const handleCloseEdit = () => {
+    setEditAccount(null);
+    setEditOpenedFromView(false);
+  };
+
+  // Receive the edited account from the Edit modal and update it in the table
+  const handleSaveAccount = (updatedAccount) => {
+    setAccounts((prev) =>
+      prev.map((acc) => (acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc))
+    );
+    // TODO: also save changes to your backend here
   };
 
   // Status Badge Renderer with brighter colors as requested
@@ -441,11 +512,24 @@ export default function Accounts() {
                     <td className="py-2 px-3 sm:px-4 text-center whitespace-nowrap">
                       <button
                         type="button"
+                        data-menu-trigger
+                        onClick={(e) => handleToggleMenu(e, acc.id)}
                         className="inline-flex items-center justify-center w-7 h-[18px] border border-[#121212]/35 rounded-[4px] text-[#121212] hover:border-[#121212] hover:bg-neutral-100 transition-colors cursor-pointer"
                         title="Actions"
+                        aria-haspopup="menu"
+                        aria-expanded={openMenuId === acc.id}
                       >
                         <MoreHorizontal className="w-3.5 h-3.5" />
                       </button>
+
+                      <AccountsTblMenu
+                        isOpen={openMenuId === acc.id}
+                        onClose={() => setOpenMenuId(null)}
+                        account={acc}
+                        anchorRect={menuAnchorRect}
+                        onView={handleViewAccount}
+                        onEdit={handleEditAccount}
+                      />
                     </td>
                   </tr>
                 ))
@@ -523,6 +607,25 @@ export default function Accounts() {
           </div>
         </div>
       </div>
+
+      {/* View Account modal */}
+      <AccountsViewModal
+        isOpen={viewAccount !== null}
+        account={viewAccount}
+        onClose={() => setViewAccount(null)}
+        onEdit={handleEditFromView}
+        onSendResetPassword={handleSendResetPassword}
+      />
+
+      {/* Edit Account modal (opened from the row menu or from inside the View modal) */}
+      <AccountsEditModal
+        isOpen={editAccount !== null}
+        account={editAccount}
+        fromView={editOpenedFromView}
+        onBack={handleBackToView}
+        onClose={handleCloseEdit}
+        onSaveAccount={handleSaveAccount}
+      />
 
       {/* Add Staff Account modal: mounted only while open so the form resets each time */}
       {isAddStaffOpen && (

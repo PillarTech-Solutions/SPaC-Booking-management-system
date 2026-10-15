@@ -1,58 +1,52 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 
-/**
- * AddAnnouncement.jsx
- * Modal component for creating and posting announcements.
- *
- * Designed according to user specs & provided reference image:
- * - Header: “Add Announcement” (or configurable title) (text color: #121212)
- * - Horizontal separator after header line color: #dedbc4
- * - X button color: #6b7280
- * - Horizontal separator before button line color: #dedbc4
- * - Panel border color: #dedbc4
- * - Panel fill color: #fbfaf1
- * - Text field border color: #dedbc4
- * - Text field fill color: #ffffff
- * - Label text color: #4a4a42
- * - Placeholder text color: #6b7280
- * - Text when filled in: #121212
- * - Checkbox: "Pin to the top"
- * - Helper subtext: "This will be visible to Court Staff on their portal."
- * - Buttons:
- *   - "Close" (left, bg: #d1d5db, text: #121212, rounded-full)
- *   - "Post" (right, bg: #ccff00, text: #121212, rounded-full)
- */
 export default function AddAnnouncement({
   isOpen = true,
   onClose,
   onPost,
   headerTitle = 'Add Announcement',
+  submitLabel = 'Post',
+  closeLabel = 'Close', // label of the bottom-left button
+  onBack = null, // if provided, the bottom-left button calls this instead of onClose
+  initialData = null, // { title, message, isPinned } for editing
 }) {
-  const [title, setTitle] = useState('');
-  const [message, setMessage] = useState('');
-  const [isPinned, setIsPinned] = useState(false);
+  const [title, setTitle] = useState(initialData?.title ?? '');
+  const [message, setMessage] = useState(initialData?.message ?? '');
+  const [isPinned, setIsPinned] = useState(Boolean(initialData?.isPinned));
   const [errorMessage, setErrorMessage] = useState('');
+
+  const handleClose = () => {
+    setErrorMessage('');
+    onClose?.();
+  };
+
+  // Bottom-left button: "Back" (when onBack is given) or "Close"
+  const handleBottomLeft = () => {
+    setErrorMessage('');
+    if (onBack) {
+      onBack();
+    } else {
+      onClose?.();
+    }
+  };
 
   // Close on Escape key
   useEffect(() => {
+    if (!isOpen) return;
     function handleKeyDown(event) {
-      if (event.key === 'Escape' && isOpen) {
-        handleClose();
+      if (event.key === 'Escape') {
+        setErrorMessage('');
+        onClose?.();
       }
     }
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen]);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
-
-  const handleClose = () => {
-    setErrorMessage('');
-    onClose?.();
-  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -188,23 +182,21 @@ export default function AddAnnouncement({
           {/* Horizontal separator before the button line color: #dedbc4 */}
           <div className="w-full h-px bg-[#dedbc4] !mt-3.5 !mb-3" />
 
-          {/* Action Buttons: left (Close), right (Post) */}
+          {/* Action Buttons: left (Close / Back), right (Post/Save) */}
           <div className="w-full flex items-center justify-between pt-0.5">
-            {/* Button for “Close” (bg: #d1d5db, text: #121212, rounded-full) */}
             <button
               type="button"
-              onClick={handleClose}
+              onClick={handleBottomLeft}
               className="px-6 sm:px-7 py-1.5 sm:py-2 rounded-full font-bold text-xs sm:text-sm bg-[#d1d5db] text-[#121212] hover:bg-[#c4c8ce] active:scale-[0.98] transition-all cursor-pointer"
             >
-              Close
+              {closeLabel}
             </button>
 
-            {/* Button for “Post” (bg: #ccff00, text: #121212, rounded-full) */}
             <button
               type="submit"
               className="px-6 sm:px-7 py-1.5 sm:py-2 rounded-full font-bold text-xs sm:text-sm bg-[#ccff00] text-[#121212] hover:bg-[#b8e600] active:scale-[0.98] transition-all cursor-pointer shadow-xs"
             >
-              Post
+              {submitLabel}
             </button>
           </div>
         </form>

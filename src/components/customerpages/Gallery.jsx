@@ -1,222 +1,42 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { supabase } from '../../../lib/supabase_client';
+
 
 // Fallback pickleball images in case local assets in /src/assets/images are not loaded
-const SAMPLE_FALLBACKS = [
-  'https://images.unsplash.com/photo-1599474924187-334a4ae5bd3c?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1622163642998-1ea32b0bbc67?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1595435934249-5df7ed86e1c0?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?auto=format&fit=crop&w=800&q=80',
-  'https://images.unsplash.com/photo-1546519638-68e109498ffc?auto=format&fit=crop&w=800&q=80',
-];
 
-const GALLERY_IMAGES = [
-  {
-    id: 1,
-    src: '/src/assets/pickleballbg.jpg',
-    alt: 'Player serving on court',
-  },
-  {
-    id: 2,
-    src: '/src/assets/pickleball1.jpg',
-    alt: 'Pickleball paddles and ball near net',
-  },
-  {
-    id: 3,
-    src: '/src/assets/pickleball2.jpg',
-    alt: 'Player holding ball and paddle',
-  },
-  {
-    id: 4,
-    src: '/src/assets/pickleball3.jpg',
-    alt: 'Pickleball doubles match in action',
-  },
-  {
-    id: 5,
-    src: '/src/assets/pickleball4.jpg',
-    alt: 'Pickleball balls and paddles in court shadow',
-  },
-  {
-    id: 6,
-    src: '/src/assets/pickleball5.jpg',
-    alt: 'Player with bucket hat hitting ball',
-  },
-  {
-    id: 7,
-    src: '/src/assets/pickleball6.jpg',
-    alt: 'Empty pickleball court with blue surface',
-  },
-  {
-    id: 8,
-    src: '/src/assets/pickleball7.jpg',
-    alt: 'Low angle players paddle tap through net',
-  },
-  {
-    id: 9,
-    src: '/src/assets/pickleball8jpg',
-    alt: 'Pickleball balls and paddles in court shadow',
-  },
-  {
-    id: 10,
-    src: '/src/assets/pickleball1.jpg',
-    alt: 'Player with bucket hat hitting ball',
-  },
-  {
-    id: 11,
-    src: '/src/assets/pickleball2.jpg',
-    alt: 'Empty pickleball court with blue surface',
-  },
-  {
-    id: 12,
-    src: '/src/assets/pickleball3.jpg',
-    alt: 'Low angle players paddle tap through net',
-  },
-  {
-    id: 13,
-    src: '/src/assets/pickleball4.jpg',
-    alt: 'Player serving on court',
-  },
-  {
-    id: 14,
-    src: '/src/assets/images/gallery_paddles_net_1791919705650.jpg',
-    alt: 'Pickleball paddles and ball near net',
-  },
-  {
-    id: 15,
-    src: '/src/assets/images/gallery_player_visor_1791919705966.jpg',
-    alt: 'Player holding ball and paddle',
-  },
-  {
-    id: 16,
-    src: '/src/assets/images/gallery_doubles_match_1791919705888.jpg',
-    alt: 'Pickleball doubles match in action',
-  },
-  {
-    id: 17,
-    src: '/src/assets/images/pickleball_paddles_flatlay_1791905471360.jpg',
-    alt: 'Pickleball balls and paddles in court shadow',
-  },
-  {
-    id: 18,
-    src: '/src/assets/images/gallery_player_buckethat_1791919706241.jpg',
-    alt: 'Player with bucket hat hitting ball',
-  },
-  {
-    id: 19,
-    src: '/src/assets/images/court_hero_banner_1791905470447.jpg',
-    alt: 'Empty pickleball court with blue surface',
-  },
-  {
-    id: 20,
-    src: '/src/assets/images/court_players_paddle_tap_1791905472024.jpg',
-    alt: 'Low angle players paddle tap through net',
-  },
-  {
-    id: 21,
-    src: '/src/assets/images/pickleball_paddles_flatlay_1791905471360.jpg',
-    alt: 'Pickleball balls and paddles in court shadow',
-  },
-  {
-    id: 22,
-    src: '/src/assets/images/gallery_player_buckethat_1791919706241.jpg',
-    alt: 'Player with bucket hat hitting ball',
-  },
-  {
-    id: 23,
-    src: '/src/assets/images/court_hero_banner_1791905470447.jpg',
-    alt: 'Empty pickleball court with blue surface',
-  },
-  {
-    id: 24,
-    src: '/src/assets/images/court_players_paddle_tap_1791905472024.jpg',
-    alt: 'Low angle players paddle tap through net',
-  },
-  {
-    id: 25,
-    src: '/src/assets/images/player_ready_serve_1791905472128.jpg',
-    alt: 'Player serving on court',
-  },
-  {
-    id: 26,
-    src: '/src/assets/images/gallery_paddles_net_1791919705650.jpg',
-    alt: 'Pickleball paddles and ball near net',
-  },
-  {
-    id: 27,
-    src: '/src/assets/images/gallery_player_visor_1791919705966.jpg',
-    alt: 'Player holding ball and paddle',
-  },
-  {
-    id: 28,
-    src: '/src/assets/images/gallery_doubles_match_1791919705888.jpg',
-    alt: 'Pickleball doubles match in action',
-  },
-  {
-    id: 29,
-    src: '/src/assets/images/pickleball_paddles_flatlay_1791905471360.jpg',
-    alt: 'Pickleball balls and paddles in court shadow',
-  },
-  {
-    id: 30,
-    src: '/src/assets/images/gallery_player_buckethat_1791919706241.jpg',
-    alt: 'Player with bucket hat hitting ball',
-  },
-  {
-    id: 31,
-    src: '/src/assets/images/court_hero_banner_1791905470447.jpg',
-    alt: 'Empty pickleball court with blue surface',
-  },
-  {
-    id: 32,
-    src: '/src/assets/images/court_players_paddle_tap_1791905472024.jpg',
-    alt: 'Low angle players paddle tap through net',
-  },
-  {
-    id: 33,
-    src: '/src/assets/images/pickleball_paddles_flatlay_1791905471360.jpg',
-    alt: 'Pickleball balls and paddles in court shadow',
-  },
-  {
-    id: 34,
-    src: '/src/assets/images/gallery_player_buckethat_1791919706241.jpg',
-    alt: 'Player with bucket hat hitting ball',
-  },
-  {
-    id: 35,
-    src: '/src/assets/images/court_hero_banner_1791905470447.jpg',
-    alt: 'Empty pickleball court with blue surface',
-  },
-  {
-    id: 36,
-    src: '/src/assets/images/court_players_paddle_tap_1791905472024.jpg',
-    alt: 'Low angle players paddle tap through net',
-  },
-];
+
+
 
 const IMAGES_PER_PAGE = 20;
 
-export default function Gallery({ images = GALLERY_IMAGES, itemsPerPage = IMAGES_PER_PAGE }) {
+export default function Gallery({ itemsPerPage = IMAGES_PER_PAGE }) {
+  const [images, setImages] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedImageIndex, setSelectedImageIndex] = useState(null);
+
+  useEffect(() => {
+    supabase
+      .from('gallery_images')
+      .select('id, url')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) return console.error('Gallery load failed:', error.message);
+        setImages(data.map((r) => ({ id: r.id, src: r.url, alt: 'Gallery photo' })));
+      });
+  }, []);
 
   // Calculate total pages dynamically based on available images
   const totalImages = images.length;
   const totalPages = Math.max(1, Math.ceil(totalImages / itemsPerPage));
 
-  // Automatically adjust current page if total images count changes
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [totalPages, currentPage]);
-
-  // Compute slice of images for current page (20 images per page)
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = Math.min(startIndex + itemsPerPage, totalImages);
-  const displayedImages = useMemo(() => {
-    return images.slice(startIndex, endIndex);
-  }, [images, startIndex, endIndex]);
+const endIndex = Math.min(startIndex + itemsPerPage, totalImages);
+const displayedImages = useMemo(
+  () => images.slice(startIndex, endIndex),
+  [images, startIndex, endIndex]
+);
 
   // Handle page navigation
   const goToPage = (pageNumber) => {
@@ -283,14 +103,7 @@ export default function Gallery({ images = GALLERY_IMAGES, itemsPerPage = IMAGES
     return pages;
   };
 
-  // Graceful fallback for missing local asset files
-  const handleImageError = (e, index) => {
-    const fallback = SAMPLE_FALLBACKS[index % SAMPLE_FALLBACKS.length];
-    if (e.currentTarget.src !== fallback) {
-      e.currentTarget.src = fallback;
-    }
-  };
-
+ 
   return (
     <div
       id="gallery-section"
@@ -322,7 +135,6 @@ export default function Gallery({ images = GALLERY_IMAGES, itemsPerPage = IMAGES
               <img
                 src={img.src}
                 alt={img.alt}
-                onError={(e) => handleImageError(e, globalIndex)}
                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
               />
             </div>
@@ -451,7 +263,6 @@ export default function Gallery({ images = GALLERY_IMAGES, itemsPerPage = IMAGES
               <img
                 src={images[selectedImageIndex].src}
                 alt={images[selectedImageIndex].alt}
-                onError={(e) => handleImageError(e, selectedImageIndex)}
                 className="max-h-[80vh] w-auto max-w-full object-contain rounded-xl"
               />
 

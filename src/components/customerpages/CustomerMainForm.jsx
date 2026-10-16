@@ -8,6 +8,8 @@ import BookingHistory from './BookingHistory';
 import ProfileMenu from './ProfileMenu';
 import Settings from './Settings';
 import GuestBookingHistory from './GuestBookingHistory'; // TEMP: preview only
+import { useSiteSettings, telHref, facebookHref, facebookLabel } from '../../hooks/useSiteSettings';
+
 
 const TABS = [
   { id: 'HOME', label: 'HOME' },
@@ -81,6 +83,8 @@ export default function CustomerMainForm() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [pendingSection, setPendingSection] = useState(null);
+  const { settings } = useSiteSettings();
+const logoSrc = settings.logo_url || '/saranay-logo.png';
 
   const ActivePage = PAGES[activeTab];
 
@@ -130,8 +134,8 @@ export default function CustomerMainForm() {
               title="Saranay Pickleball Court"
             >
               <img
-                src="/saranay-logo.png"
-                alt="Saranay Pickleball Court"
+                src={logoSrc}
+                alt={settings.business_name}
                 className="h-[52px] sm:h-[58px] max-h-[60px] w-auto object-contain transition-transform hover:scale-105"
                 onError={(e) => {
                   const target = e.currentTarget;
@@ -260,7 +264,7 @@ export default function CustomerMainForm() {
                 }}
               />
               <h3 className="text-[#ccff00] font-bold uppercase leading-[1.25] text-s sm:text-s max-w-[280px]">
-                Saranay Pickleball Court
+                {settings.business_name}
               </h3>
             </div>
             <p className="mt-8 max-w-[360px] text-base leading-[1.6] font-normal text-white">
@@ -294,27 +298,27 @@ export default function CustomerMainForm() {
               <li className="flex items-start gap-4">
                 <MapPin className="w-7 h-7 shrink-0 text-[#ccff00] stroke-[1.4]" aria-hidden="true" />
                 <span className="text-base leading-[1.5] text-white max-w-[700px]">
-                  Saranay Homes, Block 5 Lot 13 Saranay Road, Bagumbong, North, Caloocan
+                  {settings.address}
                 </span>
               </li>
               <li className="flex items-start gap-4">
                 <Phone className="w-7 h-7 shrink-0 text-[#ccff00] stroke-[1.4]" aria-hidden="true" />
                 <span className="text-base leading-[1.5] text-white">
-                  <a href="tel:+639270458745" className="hover:text-[#ccff00] transition-colors">0927-045-8745</a>
-                  <br />
-                  <a href="tel:+639065458384" className="hover:text-[#ccff00] transition-colors">0906-545-8384</a>
-                </span>
+  <a href={telHref(settings.phone_primary)} className="hover:text-[#ccff00] transition-colors">{settings.phone_primary}</a>
+  <br />
+  <a href={telHref(settings.phone_secondary)} className="hover:text-[#ccff00] transition-colors">{settings.phone_secondary}</a>
+</span>
               </li>
               <li className="flex items-start gap-4">
                 <FacebookSquareIcon className="w-7 h-7 shrink-0 text-[#ccff00]" />
                 <a
-                  href="#"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-base leading-[1.5] text-white hover:text-[#ccff00] transition-colors"
-                >
-                  Saranay Pickleball and Cafe
-                </a>
+  href={facebookHref(settings.facebook)}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="text-base leading-[1.5] text-white hover:text-[#ccff00] transition-colors"
+>
+  {facebookLabel(settings.facebook)}
+</a>
               </li>
             </ul>
           </div>
@@ -332,7 +336,7 @@ export default function CustomerMainForm() {
         {/* Bottom bar */}
         <div className="max-w-[1520px] mx-auto px-5 sm:px-10 py-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <p className="text-sm sm:text-base font-normal text-[#b4b4b4]">
-            © 2026 Saranay Pickleball Court. All rights reserved.
+            © 2026 {settings.business_name}. All rights reserved.
           </p>
           <nav className="flex flex-wrap gap-x-10 gap-y-2" aria-label="Legal">
             {LEGAL_LINKS.map((link) => (

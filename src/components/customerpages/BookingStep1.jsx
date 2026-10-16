@@ -1,5 +1,5 @@
-import React from 'react';
-import { Calendar as CalendarIcon, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const TIME_SLOTS = [
   { time: '6:00 AM', status: 'open' },
@@ -26,6 +26,13 @@ const TIME_SLOTS = [
 ];
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// Set to true once you go live so customers can't pick dates that already passed.
+const BLOCK_PAST_DATES = false;
 
 export default function BookingStep1({
   bookingData,
@@ -34,18 +41,41 @@ export default function BookingStep1({
   calculatedTotal,
 }) {
   const selectedDay = bookingData.day || 19;
-  const selectedMonth = bookingData.month || 'August';
+  const selectedMonthIdx = Math.max(0, MONTHS.indexOf(bookingData.month || 'August'));
   const selectedYear = bookingData.year || 2026;
   const selectedTime = bookingData.startTime || '08:00 AM';
   const duration = bookingData.duration || 1;
 
-  // Format date display
-  const monthNum = '08';
-  const dayStr = String(selectedDay).padStart(2, '0');
-  const dateFormatted = `${monthNum}/${dayStr}/${selectedYear}`;
+  // The month currently being *viewed* in the calendar (can differ from the selected date's month)
+  const [view, setView] = useState({ month: selectedMonthIdx, year: selectedYear });
+
+  const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
+  const firstWeekday = new Date(view.year, view.month, 1).getDay(); // 0 = Sunday
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const isSelected = (d) =>
+    d === selectedDay && view.month === selectedMonthIdx && view.year === selectedYear;
+
+  const isPast = (d) => BLOCK_PAST_DATES && new Date(view.year, view.month, d) < today;
+
+  const canGoPrev =
+    !BLOCK_PAST_DATES ||
+    view.year > today.getFullYear() ||
+    (view.year === today.getFullYear() && view.month > today.getMonth());
+
+  const changeMonth = (delta) => {
+    setView((v) => {
+      const d = new Date(v.year, v.month + delta, 1);
+      return { month: d.getMonth(), year: d.getFullYear() };
+    });
+  };
+
+  // Format date display (MM/DD/YYYY)
+  const dateFormatted = `${String(selectedMonthIdx + 1).padStart(2, '0')}/${String(selectedDay).padStart(2, '0')}/${selectedYear}`;
 
   const handleDaySelect = (day) => {
-    updateBookingData({ day });
+    updateBookingData({ day, month: MONTHS[view.month], year: view.year });
   };
 
   const handleTimeSelect = (slot) => {
@@ -63,10 +93,8 @@ export default function BookingStep1({
       {/* Stepper Progress Bar */}
       <div className="w-full max-w-[576px] mx-auto pb-8 mb-6 border-b border-neutral-100 relative">
         <div className="relative flex items-center justify-between">
-          {/* Connector Line */}
           <div className="absolute left-[40px] right-[40px] top-[20px] h-[2px] bg-neutral-200 z-0" />
 
-          {/* Step 1 - Active */}
           <div className="relative z-10 flex flex-col items-center">
             <div className="w-10 h-10 rounded-full bg-[#ccff00] flex items-center justify-center font-bold text-black text-sm ring-4 ring-white shadow-xs">
               1
@@ -76,7 +104,6 @@ export default function BookingStep1({
             </span>
           </div>
 
-          {/* Step 2 - Inactive */}
           <div className="relative z-10 flex flex-col items-center">
             <div className="w-10 h-10 rounded-full bg-[#F7F6F0] border border-neutral-300 flex items-center justify-center font-semibold text-neutral-600 text-sm ring-4 ring-white">
               2
@@ -86,7 +113,6 @@ export default function BookingStep1({
             </span>
           </div>
 
-          {/* Step 3 - Inactive */}
           <div className="relative z-10 flex flex-col items-center">
             <div className="w-10 h-10 rounded-full bg-[#F7F6F0] border border-neutral-300 flex items-center justify-center font-semibold text-neutral-600 text-sm ring-4 ring-white">
               3
@@ -111,28 +137,22 @@ export default function BookingStep1({
       {/* Date & Start Time Summary Readouts */}
       <div className="bg-[#F7F6F0] border border-[#E7E5DC] rounded-2xl p-4 sm:p-5 mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Date Box */}
           <div>
             <label className="block text-[11px] font-bold text-neutral-600 uppercase tracking-wider mb-1.5">
               DATE
             </label>
             <div className="bg-white border border-neutral-300 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-2xs">
-              <span className="text-sm font-semibold text-neutral-800">
-                {dateFormatted}
-              </span>
+              <span className="text-sm font-semibold text-neutral-800">{dateFormatted}</span>
               <CalendarIcon className="w-4 h-4 text-neutral-500 stroke-[1.8]" />
             </div>
           </div>
 
-          {/* Start Time Box */}
           <div>
             <label className="block text-[11px] font-bold text-neutral-600 uppercase tracking-wider mb-1.5">
               START TIME
             </label>
             <div className="bg-white border border-neutral-300 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-2xs">
-              <span className="text-sm font-semibold text-neutral-800">
-                {selectedTime}
-              </span>
+              <span className="text-sm font-semibold text-neutral-800">{selectedTime}</span>
               <Clock className="w-4 h-4 text-neutral-500 stroke-[1.8]" />
             </div>
           </div>
@@ -148,24 +168,27 @@ export default function BookingStep1({
               SELECT DATE
             </div>
 
-            {/* Month Header */}
+            {/* Month Header with working navigation */}
             <div className="flex items-center justify-between mb-4">
               <button
                 type="button"
-                className="w-8 h-8 rounded-lg border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-100 transition-colors cursor-pointer"
+                onClick={() => changeMonth(-1)}
+                disabled={!canGoPrev}
+                className="w-8 h-8 rounded-lg border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 aria-label="Previous month"
               >
-                &lt;
+                <ChevronLeft className="w-4 h-4" />
               </button>
               <h3 className="text-base font-bold text-[#1F2937]">
-                {selectedMonth} {selectedYear}
+                {MONTHS[view.month]} {view.year}
               </h3>
               <button
                 type="button"
+                onClick={() => changeMonth(1)}
                 className="w-8 h-8 rounded-lg border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-100 transition-colors cursor-pointer"
                 aria-label="Next month"
               >
-                &gt;
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
 
@@ -178,93 +201,32 @@ export default function BookingStep1({
               ))}
             </div>
 
-            {/* Calendar Days Matrix (August 2026 starts on Saturday) */}
+            {/* Calendar days, generated for whichever month is being viewed */}
             <div className="grid grid-cols-7 gap-y-2 gap-x-1 text-center">
-              {/* Empty offset for Sun-Fri (6 days) */}
-              <div />
-              <div />
-              <div />
-              <div />
-              <div />
-              <div />
-              {/* Day 1 */}
-              <div className="py-1 text-sm font-medium text-neutral-400">1</div>
-
-              {/* Days 2 - 8 */}
-              {[2, 3, 4, 5, 6, 7, 8].map((d) => (
-                <div key={d} className="py-1 text-sm font-medium text-neutral-400">
-                  {d}
-                </div>
+              {Array.from({ length: firstWeekday }).map((_, i) => (
+                <div key={`blank-${i}`} />
               ))}
 
-              {/* Days 9 - 15 */}
-              {[9, 10, 11, 12, 13].map((d) => (
-                <div key={d} className="py-1 text-sm font-medium text-neutral-400">
-                  {d}
-                </div>
-              ))}
-              {[14, 15].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => handleDaySelect(d)}
-                  className={`py-1 text-sm font-bold rounded-full transition-colors cursor-pointer ${
-                    selectedDay === d
-                      ? 'bg-[#ccff00] text-black font-extrabold ring-2 ring-black/10'
-                      : 'text-neutral-800 hover:bg-neutral-100'
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-
-              {/* Days 16 - 22 */}
-              {[16, 17, 18, 19, 20, 21, 22].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => handleDaySelect(d)}
-                  className={`h-9 flex items-center justify-center text-sm font-bold rounded-full transition-all cursor-pointer ${
-                    selectedDay === d
-                      ? 'bg-[#ccff00] text-black font-extrabold shadow-xs scale-105'
-                      : 'text-neutral-800 hover:bg-neutral-100'
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-
-              {/* Days 23 - 29 */}
-              {[23, 24, 25, 26, 27, 28, 29].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => handleDaySelect(d)}
-                  className={`h-9 flex items-center justify-center text-sm font-bold rounded-full transition-all cursor-pointer ${
-                    selectedDay === d
-                      ? 'bg-[#ccff00] text-black font-extrabold shadow-xs scale-105'
-                      : 'text-neutral-800 hover:bg-neutral-100'
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-
-              {/* Days 30 - 31 */}
-              {[30, 31].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => handleDaySelect(d)}
-                  className={`h-9 flex items-center justify-center text-sm font-bold rounded-full transition-all cursor-pointer ${
-                    selectedDay === d
-                      ? 'bg-[#ccff00] text-black font-extrabold shadow-xs scale-105'
-                      : 'text-neutral-800 hover:bg-neutral-100'
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
+              {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {
+                const past = isPast(d);
+                return (
+                  <button
+                    key={d}
+                    type="button"
+                    disabled={past}
+                    onClick={() => handleDaySelect(d)}
+                    className={`h-9 flex items-center justify-center text-sm rounded-full transition-all ${
+                      isSelected(d)
+                        ? 'bg-[#ccff00] text-black font-extrabold shadow-xs scale-105 cursor-pointer'
+                        : past
+                        ? 'text-neutral-300 font-medium cursor-not-allowed'
+                        : 'text-neutral-800 font-bold hover:bg-neutral-100 cursor-pointer'
+                    }`}
+                  >
+                    {d}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -276,10 +238,9 @@ export default function BookingStep1({
               SELECT START TIME
             </div>
 
-            {/* Time Slot Buttons Matrix */}
             <div className="grid grid-cols-3 gap-2">
               {TIME_SLOTS.map((slot) => {
-                const isSelected = selectedTime === slot.time;
+                const selected = selectedTime === slot.time;
                 const isBooked = slot.status === 'booked';
 
                 return (
@@ -289,7 +250,7 @@ export default function BookingStep1({
                     disabled={isBooked}
                     onClick={() => handleTimeSelect(slot)}
                     className={`py-2 px-1 text-xs font-semibold rounded-lg transition-all text-center select-none ${
-                      isSelected
+                      selected
                         ? 'bg-[#ccff00] border-2 border-[#ccff00] text-black font-bold shadow-xs'
                         : isBooked
                         ? 'bg-neutral-300 text-neutral-500 cursor-not-allowed border border-neutral-300'

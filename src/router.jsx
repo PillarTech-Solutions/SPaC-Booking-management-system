@@ -7,8 +7,8 @@ import AdminMainForm from "./components/adminpages/AdminMainForm";
 import CustomerMainForm from "./components/customerpages/CustomerMainForm";
 
 const router = createBrowserRouter([
-  { path: '/', element: <CustomerMainForm /> },   // startup page
-  { path: '/admin', element: <AdminMainForm /> },
+  { path: '/', element: <AdminMainForm /> },   // startup page
+  { path: '/customer', element: <CustomerMainForm /> },
   { path: '/login', element: <Login /> },
   { path: '/forgot-password', element: <ForgotPassword /> },
   { path: '/check-email', element: <CheckEmail /> },

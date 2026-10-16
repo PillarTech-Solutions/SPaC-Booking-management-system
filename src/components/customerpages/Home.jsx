@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Info, Sun, Moon, Users, ArrowRight } from 'lucide-react';
+import { Info, Sun, Moon, Users, ArrowRight } from 'lucide-react';
 import BookingStep1 from './BookingStep1';
 import BookingStep2 from './BookingStep2';
 import BookingStep3 from './BookingStep3';
@@ -105,9 +105,7 @@ function GearCard({ icon, name, price }) {
 // ---------------------------------------------------------------------------
 export default function Home({ onNavigateToTab, setFocusMode }) {
   const [currentStep, setCurrentStep] = useState(1); // 1, 2, 3, 'payment', 'receipt'
-  const [bookingTypeDropdownOpen, setBookingTypeDropdownOpen] = useState(false);
-  const [selectedBookingType, setSelectedBookingType] = useState(''); // empty -> "Select Booking Type"
-  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+    const [policyModalOpen, setPolicyModalOpen] = useState(false);
 
   const [bookingData, setBookingData] = useState({
     day: 19,
@@ -206,43 +204,9 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
             Saranay Pickleball Court
           </h1>
 
-          <div className="relative mt-5 w-full max-w-[490px]">
-            <button
-              type="button"
-              onClick={() => setBookingTypeDropdownOpen((o) => !o)}
-              aria-haspopup="listbox"
-              aria-expanded={bookingTypeDropdownOpen}
-              className="w-full flex items-center justify-between px-5 py-2.5 rounded-xl bg-transparent border border-white/90 text-white font-bold text-base sm:text-[17px] cursor-pointer select-none hover:bg-white/10 transition-colors"
-            >
-              <span>{selectedBookingType || 'Select Booking Type'}</span>
-              <ChevronDown
-                className={`w-5 h-5 transition-transform duration-200 ${bookingTypeDropdownOpen ? 'rotate-180' : ''}`}
-              />
-            </button>
-
-            {bookingTypeDropdownOpen && (
-              <div
-                role="listbox"
-                className="absolute left-0 right-0 top-full mt-2 bg-[#121212] border border-neutral-700 rounded-xl shadow-2xl py-1.5 z-50 text-left overflow-hidden"
-              >
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={selectedBookingType === 'Court Rental'}
-                  onClick={() => {
-                    setSelectedBookingType('Court Rental');
-                    updateBookingData({ bookingType: 'Court Rental' });
-                    setBookingTypeDropdownOpen(false);
-                    scrollToBooking();
-                  }}
-                  className="w-full px-5 py-3 text-sm sm:text-base font-bold text-white hover:bg-neutral-800 hover:text-[#ccff00] transition-colors flex items-center justify-between cursor-pointer"
-                >
-                  <span>Court Rental</span>
-                  <span className="text-[#ccff00] text-xs font-semibold px-2 py-0.5 rounded bg-neutral-800">Active</span>
-                </button>
-              </div>
-            )}
-          </div>
+          <div className="mt-5 w-full max-w-[490px] flex items-center justify-center px-5 py-2.5 rounded-xl border border-white/90 text-white font-bold text-base sm:text-[17px] select-none">
+  Court Rental
+</div>
         </div>
       </section>
 

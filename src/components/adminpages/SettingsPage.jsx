@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import SettingsPageGalleryModal from "./SettingsPageGalleryModal";
 import SettingsPageAddUnavailableSched from "./SettingsPageAddUnavailableSched";
 import SettingsPageEditUnavailableSched from "./SettingsPageEditUnavailableSched";
+import PopupSettingsSaveConfirmation from "./PopupSettingsSaveConfirmation";
+import PopupSettingsResetConfirmation from "./PopupSettingsResetConfirmation";
+import SettingsPageFaqs from "./SettingsPageFaqs";
 import {
   Building2,
   Image as ImageIcon,
@@ -16,7 +19,8 @@ import {
   X,
   MoreHorizontal,
   RotateCw,
-  Trash2,  ChevronLeft,
+  Trash2,
+  ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 
@@ -85,25 +89,42 @@ function Chip({ children, active, onClick }) {
   );
 }
 
-function ActionBar({ onReset, onSave, saveLabel }) {
+function ActionBar({ onReset, onSave, saveLabel, section }) {
+  const [confirm, setConfirm] = useState(null); // "save" | "reset" | null
+  const close = () => setConfirm(null);
   return (
-    <div className="flex items-center justify-end gap-2 pt-2">
-      <button
-        type="button"
-        onClick={onReset}
-        className="rounded-xl border border-[#121212] bg-[#ffffff] px-4 py-1.5 text-xs font-semibold text-[#121212] hover:bg-neutral-100 transition-colors"
-      >
-        Reset
-      </button>
-      <button
-        type="button"
-        onClick={onSave}
-        style={{ backgroundColor: LIME }}
-        className="rounded-xl border border-[#121212] px-4 py-1.5 text-xs font-bold text-[#121212] hover:brightness-95 transition"
-      >
-        {saveLabel}
-      </button>
-    </div>
+    <>
+      <div className="flex items-center justify-end gap-2 pt-2">
+        <button
+          type="button"
+          onClick={() => setConfirm("reset")}
+          className="rounded-xl border border-[#121212] bg-[#ffffff] px-4 py-1.5 text-xs font-semibold text-[#121212] hover:bg-neutral-100 transition-colors"
+        >
+          Reset
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirm("save")}
+          style={{ backgroundColor: LIME }}
+          className="rounded-xl border border-[#121212] px-4 py-1.5 text-xs font-bold text-[#121212] hover:brightness-95 transition"
+        >
+          {saveLabel}
+        </button>
+      </div>
+
+      <PopupSettingsResetConfirmation
+        isOpen={confirm === "reset"}
+        sectionName={section}
+        onClose={close}
+        onConfirm={onReset}
+      />
+      <PopupSettingsSaveConfirmation
+        isOpen={confirm === "save"}
+        sectionName={section}
+        onClose={close}
+        onConfirm={onSave}
+      />
+    </>
   );
 }
 
@@ -283,6 +304,7 @@ function BusinessTab() {
 
       <ActionBar
         saveLabel="Save changes"
+        section="business settings"
         onReset={() => setForm(INITIAL_BUSINESS)}
         onSave={() => console.log("Save business settings", form)}
       />
@@ -467,6 +489,7 @@ function PricingTab() {
 
       <ActionBar
         saveLabel="Save pricing"
+        section="pricing"
         onReset={() => setPricing(INITIAL_PRICING)}
         onSave={() => console.log("Save pricing", pricing)}
       />
@@ -813,6 +836,7 @@ function AvailabilityTab() {
 
       <ActionBar
         saveLabel="Save schedule"
+        section="availability"
         onReset={() => setData(INITIAL_AVAILABILITY)}
         onSave={() => console.log("Save schedule", data)}
       />
@@ -825,6 +849,7 @@ const TABS = [
   { id: "business", label: "Business settings", Component: BusinessTab },
   { id: "pricing", label: "Pricing", Component: PricingTab },
   { id: "availability", label: "Availability", Component: AvailabilityTab },
+  { id: "faqs", label: "FAQs & Guidelines", Component: SettingsPageFaqs },
 ];
 
 export default function SettingsPage() {

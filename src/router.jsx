@@ -1,9 +1,9 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
-import Login from "./components/adminpages/Login";
-import ForgotPassword from "./components/adminpages/ForgotPass";
-import CheckEmail from "./components/adminpages/CheckEmail";
-import ResetPassword from "./components/adminpages/ResetPassword";
-import AdminMainForm from "./components/adminpages/AdminMainForm";
+import Login from "./admin/Login";
+import ForgotPassword from "./admin/ForgotPass";
+import CheckEmail from "./admin/CheckEmail";
+import ResetPassword from "./admin/ResetPassword";
+import AdminMainForm from "./admin/AdminMainForm";
 
 const router = createBrowserRouter([
   { path: '/', element: <Navigate to="/admin" replace /> },

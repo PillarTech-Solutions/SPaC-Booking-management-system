@@ -9,7 +9,7 @@ import {
   Check,
   UserPlus,
 } from 'lucide-react';
-import AddStaffAccount from './AddStaffAccount';
+import AddStaffAccount from '../components/AddStaffAccount';
 
 const INITIAL_ACCOUNTS = [
   { id: 'ACC-1001', name: 'Alyssa Cruz', email: 'alyssa.cruz@saranay.ph', role: 'Manager', contact: '+63 917 842 1923', status: 'Active', dateAdded: 'Aug 10, 2026', dateCreated: 'Aug 10, 2026' },

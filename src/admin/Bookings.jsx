@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, Calendar, ChevronDown, MoreHorizontal, ChevronLeft, ChevronRight, RotateCcw, Check } from 'lucide-react';
-import BookingsTblMenu from './BookingsTblMenu';
+import BookingsTblMenu from '../components/BookingsTblMenu';
 
 const INITIAL_BOOKINGS = [
   { ref: 'CR-1006', customer: 'Alyssa Cruz', date: 'Aug 27, 2026', time: '6:00 PM – 7:00 PM', pax: '4', amount: '₱ 300', status: 'Reserved' },

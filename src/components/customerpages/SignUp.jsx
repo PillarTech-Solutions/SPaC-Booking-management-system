@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import logo from '/src/assets/Logo2.png'
+import { useAuth } from '../../context/AuthContext' // NEW: adjust this path to where your AuthContext.jsx lives
 
-export default function Signup_customer({ onClose, onSignIn }) {
+export default function Signup_customer({ onClose, onSignIn, onSuccess }) { // CHANGED: optional onSuccess prop
+  const { signUp } = useAuth() // NEW
+
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [mobile, setMobile] = useState('') // digits only, 10 max (after +63)
@@ -10,6 +13,8 @@ export default function Signup_customer({ onClose, onSignIn }) {
   const [showPass, setShowPass] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false) // NEW
+  const [verifyEmailSent, setVerifyEmailSent] = useState(false) // NEW
 
   // "9171234567" -> "917 123 4567"
   const formatMobile = (d) =>
@@ -20,14 +25,37 @@ export default function Signup_customer({ onClose, onSignIn }) {
     setMobile(digits)
   }
 
-  const handleSubmit = (e) => {
+  // CHANGED: now async and calls signUp from AuthContext
+  const handleSubmit = async (e) => {
     e.preventDefault()
+    if (submitting) return
     if (mobile.length !== 10) return setError('Enter a 10-digit mobile number.')
-    if (password.length < 6) return setError('Password must be at least 6 characters.')
+    if (password.length < 8) return setError('Password must be at least 8 characters.') // CHANGED: 6 -> 8 to match AuthContext
     if (password !== confirm) return setError('Passwords do not match.')
     setError('')
-    // TODO: call your customer sign-up API here
-    console.log('sign up', { fullName, email, mobile: `+63${mobile}` })
+    setSubmitting(true)
+
+    const result = await signUp({
+      fullName,
+      email,
+      password,
+      contactNumber: `+63${mobile}`,
+    })
+
+    setSubmitting(false)
+
+    if (!result.success) {
+      setError(result.error || 'Unable to create your account. Please try again.')
+      return
+    }
+
+    if (result.needsEmailVerification) {
+      setVerifyEmailSent(true) // show "check your email" screen
+    } else {
+      // Account created and logged in already. AuthContext has the user/role set.
+      if (onSuccess) onSuccess(result)
+      else onClose?.()
+    }
   }
 
   const linkBtn = {
@@ -69,6 +97,32 @@ export default function Signup_customer({ onClose, onSignIn }) {
 
   const fieldGap = { marginBottom: 16 }
 
+  // NEW: backdrop and card styles pulled out so the success screen can reuse them
+  const backdropStyle = {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1000,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    boxSizing: 'border-box',
+    overflowY: 'auto', // lets short screens scroll the card instead of clipping it
+  }
+
+  const cardStyle = {
+    position: 'relative',
+    width: '100%',
+    maxWidth: 400,
+    margin: 'auto',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: '28px 24px 22px',
+    boxSizing: 'border-box',
+    fontFamily: "'Be Vietnam Pro', sans-serif",
+  }
+
   // lock page scroll + close on Escape
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -105,37 +159,50 @@ export default function Signup_customer({ onClose, onSignIn }) {
     </svg>
   )
 
+  // NEW: "check your email" screen, shown when Supabase email confirmation is ON
+  if (verifyEmailSent) {
+    return (
+      <div onClick={onClose} style={backdropStyle}>
+        <div onClick={(e) => e.stopPropagation()} style={{ ...cardStyle, textAlign: 'center' }}>
+          <img src={logo} alt="Saranay Pickleball Court" style={{ width: 90, maxWidth: '40%' }} />
+          <h1 style={{ margin: '14px 0 8px', fontSize: 20, fontWeight: 800, color: '#121212', textTransform: 'uppercase' }}>
+            Check your email
+          </h1>
+          <p style={{ margin: '0 0 20px', fontSize: 13, lineHeight: 1.5, color: '#666' }}>
+            We sent a verification link to <strong>{email.trim().toLowerCase()}</strong>.
+            Click it to activate your account, then sign in.
+          </p>
+          <button
+            type="button"
+            onClick={onSignIn}
+            style={{
+              width: '100%',
+              height: 40,
+              backgroundColor: '#CCFF00',
+              color: '#000',
+              border: '1px solid #000',
+              borderRadius: 10,
+              fontFamily: 'inherit',
+              fontSize: 14,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+          >
+            Go to sign in
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     // backdrop: clicking outside the card closes it
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1000,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 24,
-        boxSizing: 'border-box',
-        overflowY: 'auto', // lets short screens scroll the card instead of clipping it
-      }}
-    >
+    <div onClick={onClose} style={backdropStyle}>
       <form
         onClick={(e) => e.stopPropagation()}
         onSubmit={handleSubmit}
-        style={{
-          position: 'relative',
-          width: '100%',
-          maxWidth: 400,
-          margin: 'auto',
-          backgroundColor: 'white',
-          borderRadius: 12,
-          padding: '28px 24px 22px',
-          boxSizing: 'border-box',
-          fontFamily: "'Be Vietnam Pro', sans-serif",
-        }}
+        style={cardStyle}
       >
         {/* Close */}
         <button
@@ -242,10 +309,10 @@ export default function Signup_customer({ onClose, onSignIn }) {
               id="signup-password"
               type={showPass ? 'text' : 'password'}
               autoComplete="new-password"
-              placeholder="At least 6 characters"
+              placeholder="At least 8 characters" // CHANGED
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              minLength={6}
+              minLength={8} // CHANGED
               required
               style={inputStyle}
             />
@@ -285,7 +352,7 @@ export default function Signup_customer({ onClose, onSignIn }) {
           </div>
         </div>
 
-        {/* Validation error */}
+        {/* Validation / server error */}
         {error && (
           <p role="alert" style={{ margin: '10px 0 0', fontSize: 12, color: '#C62828' }}>
             {error}
@@ -295,6 +362,7 @@ export default function Signup_customer({ onClose, onSignIn }) {
         {/* Sign up */}
         <button
           type="submit"
+          disabled={submitting} // NEW
           style={{
             width: '100%',
             height: 40,
@@ -307,10 +375,11 @@ export default function Signup_customer({ onClose, onSignIn }) {
             fontSize: 14,
             fontWeight: 700,
             textTransform: 'uppercase',
-            cursor: 'pointer',
+            cursor: submitting ? 'not-allowed' : 'pointer', // CHANGED
+            opacity: submitting ? 0.6 : 1, // NEW
           }}
         >
-          Sign up
+          {submitting ? 'Creating account...' : 'Sign up'} {/* CHANGED */}
         </button>
 
         {/* Sign in */}

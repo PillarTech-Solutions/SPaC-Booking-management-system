@@ -1,15 +1,41 @@
 import { useState, useEffect, useRef } from 'react'
 import logo from '/src/assets/Logo2.png'
+import { useAuth } from '../../context/AuthContext' // NEW: adjust this path to where your AuthContext.jsx lives
 
-export default function Login_customer({ onClose, onForgot, onSignUp }) {
+export default function Login_customer({ onClose, onForgot, onSignUp, onSuccess }) { // CHANGED: optional onSuccess prop
+  const { signIn, signOut } = useAuth() // NEW
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [show, setShow] = useState(false)
+  const [error, setError] = useState('') // NEW
+  const [submitting, setSubmitting] = useState(false) // NEW
 
-  const handleSubmit = (e) => {
+  // CHANGED: now async and calls signIn from AuthContext
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    // TODO: call your customer login API here
-    console.log('sign in', email)
+    if (submitting) return
+    setError('')
+    setSubmitting(true)
+
+    const result = await signIn(email, password)
+
+    setSubmitting(false)
+
+    if (!result.success) {
+      setError(result.error || 'Unable to sign in. Please try again.')
+      return
+    }
+
+    // This modal is for customers only. Staff accounts use the staff login.
+    if (result.role !== 'Customer') {
+      await signOut()
+      setError('This login is for customers. Staff, please use the staff login page.')
+      return
+    }
+
+    if (onSuccess) onSuccess(result)
+    else onClose?.()
   }
 
   const linkBtn = {
@@ -49,10 +75,10 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
     marginBottom: 6,
   }
 
-    const onCloseRef = useRef(onClose)
-    onCloseRef.current = onClose
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
-    useEffect(() => {
+  useEffect(() => {
     const html = document.documentElement
     const body = document.body
 
@@ -70,13 +96,13 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
     window.addEventListener('keydown', onKey)
 
     return () => {
-        html.style.overflow = prevHtml
-        body.style.overflow = prevBody
-        body.style.paddingRight = prevPad
-        window.removeEventListener('keydown', onKey)
+      html.style.overflow = prevHtml
+      body.style.overflow = prevBody
+      body.style.paddingRight = prevPad
+      window.removeEventListener('keydown', onKey)
     }
-    }, [])
-    
+  }, [])
+
   return (
     // backdrop: clicking outside the card closes it
     <div
@@ -84,7 +110,7 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 1000,          
+        zIndex: 1000,
         backgroundColor: 'rgba(0, 0, 0, 0.6)',
         display: 'flex',
         alignItems: 'center',
@@ -94,7 +120,7 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
       }}
     >
       <form
-        onClick={(e) => e.stopPropagation()}   // clicks inside the card don't close it
+        onClick={(e) => e.stopPropagation()} // clicks inside the card don't close it
         onSubmit={handleSubmit}
         style={{
           position: 'relative',
@@ -155,6 +181,7 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
           <input
             id="customer-email"
             type="email"
+            autoComplete="email" // NEW
             placeholder="alex@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -169,6 +196,7 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
           <input
             id="customer-password"
             type={show ? 'text' : 'password'}
+            autoComplete="current-password" // NEW
             placeholder="enter your password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -196,9 +224,17 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
           </button>
         </div>
 
+        {/* NEW: error message */}
+        {error && (
+          <p role="alert" style={{ margin: '10px 0 0', fontSize: 12, color: '#C62828' }}>
+            {error}
+          </p>
+        )}
+
         {/* Sign in */}
         <button
           type="submit"
+          disabled={submitting} // NEW
           style={{
             width: '100%',
             height: 40,
@@ -211,10 +247,11 @@ export default function Login_customer({ onClose, onForgot, onSignUp }) {
             fontSize: 14,
             fontWeight: 700,
             textTransform: 'uppercase',
-            cursor: 'pointer',
+            cursor: submitting ? 'not-allowed' : 'pointer', // CHANGED
+            opacity: submitting ? 0.6 : 1, // NEW
           }}
         >
-          Sign in
+          {submitting ? 'Signing in...' : 'Sign in'} {/* CHANGED */}
         </button>
 
         {/* Sign up */}

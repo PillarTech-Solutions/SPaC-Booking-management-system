@@ -333,6 +333,112 @@ export function AuthProvider({ children }) {
     return { success: true, role: matchedAccount.role, profile: matchedAccount };
   };
 
+  // Sign Up function (customers only; staff accounts are created by admins)
+  const signUp = async ({ fullName, email, password, contactNumber }) => {
+    setAuthError(null);
+
+    const cleanName = String(fullName || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanContact = String(contactNumber || '').trim();
+
+    const fail = (msg) => {
+      setAuthError(msg);
+      return { success: false, error: msg };
+    };
+
+    if (!cleanName) return fail('Please enter your full name.');
+    if (!cleanEmail) return fail('Please enter your email address.');
+    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      return fail('Please enter a valid email address.');
+    }
+    if (!password || password.length < 8) {
+      return fail('Password must be at least 8 characters.');
+    }
+
+    // 1. Live Supabase mode
+    if (isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password,
+          options: {
+            // Stored in user_metadata; a DB trigger can use this to create the profile
+            data: { full_name: cleanName, contact_number: cleanContact },
+            emailRedirectTo: `${window.location.origin}/login`,
+          },
+        });
+
+        if (error) {
+          let userMsg = error.message || 'Unable to create your account. Please try again.';
+          if (/already registered/i.test(error.message)) {
+            userMsg = 'An account with this email already exists. Please sign in instead.';
+          } else if (/password/i.test(error.message)) {
+            userMsg = 'Password is too weak. Please use a stronger password.';
+          }
+          return fail(userMsg);
+        }
+
+        // Supabase returns a user with empty identities if the email is already taken
+        // (when email confirmation is on, it doesn't return an error)
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          return fail('An account with this email already exists. Please sign in instead.');
+        }
+
+        // Email confirmation ON: no session yet, so the user must verify first.
+        if (!data.session) {
+          return { success: true, needsEmailVerification: true, email: cleanEmail };
+        }
+
+        // Email confirmation OFF: we have a session, so create the profile now.
+        // Role/status are fixed here; the client never chooses them.
+        const newProfile = {
+          id: data.user.id,
+          email: cleanEmail,
+          full_name: cleanName,
+          contact_number: cleanContact,
+        };
+
+        const { error: profileError } = await supabase
+          .from('customer_profiles')
+          .upsert(newProfile, { onConflict: 'id' });
+
+        if (profileError) {
+          console.error('[SPaC Auth] Profile creation error:', profileError);
+          return fail('Account created, but we could not set up your profile. Please contact support.');
+        }
+
+        const fullProfile = { type: 'customer', role: 'Customer', status: 'Active', ...newProfile };
+        setUser(data.user);
+        setSession(data.session);
+        setProfile(fullProfile);
+        setRole('Customer');
+        return { success: true, needsEmailVerification: false, role: 'Customer', profile: fullProfile };
+      } catch (err) {
+        return fail(err.message || 'An unexpected error occurred during sign up.');
+      }
+    }
+
+    // 2. Preview / Demo mode
+    const isReserved = DEMO_STAFF_ACCOUNTS.some((a) => a.email.toLowerCase() === cleanEmail);
+    if (isReserved) return fail('An account with this email already exists. Please sign in instead.');
+
+    const previewCustomer = {
+      id: `preview-${Date.now()}`,
+      type: 'customer',
+      email: cleanEmail,
+      full_name: cleanName,
+      contact_number: cleanContact,
+      role: 'Customer',
+      status: 'Active',
+    };
+    sessionStorage.setItem('spac_preview_session', JSON.stringify(previewCustomer));
+    setUser({ id: previewCustomer.id, email: cleanEmail });
+    setSession({ access_token: 'preview-token' });
+    setProfile(previewCustomer);
+    setRole('Customer');
+    return { success: true, needsEmailVerification: false, role: 'Customer', profile: previewCustomer };
+  };
+
   // Sign Out function
   const signOut = async () => {
     try {
@@ -416,6 +522,7 @@ export function AuthProvider({ children }) {
     authError,
     setAuthError,
     signIn,
+    signUp,
     signOut,
     requestPasswordReset,
     updatePassword,

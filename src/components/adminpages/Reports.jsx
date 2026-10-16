@@ -11,7 +11,7 @@ import {
   Download,
   Table,
 } from 'lucide-react';
-import ReportModal from './ReportModal';
+import ReportModal from './Reportmodal';
 
 /* -------------------------------------------------------------------------- */
 /*  Mock data (hard coded). Replace with real data from your backend later.    */

@@ -12,6 +12,7 @@ import {
   verifyPayMongoPayment,
   toReceiptProps,
 } from '../../../lib/bookingService';
+import { useSiteSettings } from '../../hooks/useSiteSettings';
 
 // ---------------------------------------------------------------------------
 // Assets
@@ -129,6 +130,10 @@ function freshBookingData() {
 // customer: { name, email, phone } of the logged-in customer (null for guests).
 // Passed from CustomerMainForm so the PaymentPage contact form is pre-filled.
 export default function Home({ onNavigateToTab, setFocusMode, customer = null }) {
+  // Hero image + business name are editable from the admin Settings page
+  const { settings } = useSiteSettings();
+  const heroImage = settings.banner_url || HERO_IMAGE;
+  const businessName = settings.business_name || 'Saranay Pickleball Court';
   // 1, 2, 3, 'payment', 'verifying', 'receipt'
   const [currentStep, setCurrentStep] = useState(1);
   const [policyModalOpen, setPolicyModalOpen] = useState(false);
@@ -277,12 +282,12 @@ export default function Home({ onNavigateToTab, setFocusMode, customer = null })
       <div className="relative">
         {/* 1. HERO */}
         <section className="relative left-1/2 -translate-x-1/2 w-screen -mt-6 sm:-mt-10 h-[300px] sm:h-[340px] md:h-[380px] bg-neutral-900 z-10">
-          <img src={HERO_IMAGE} alt="Saranay Pickleball Court" className="absolute inset-0 w-full h-full object-cover" />
+          <img src={heroImage} alt={businessName} className="absolute inset-0 w-full h-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-black/55" />
 
           <div className="relative z-10 h-full flex flex-col items-center pt-14 sm:pt-20 px-4">
             <h1 className="text-white text-3xl sm:text-4xl md:text-[42px] font-bold tracking-tight uppercase text-center leading-tight">
-              Saranay Pickleball Court
+              {businessName}
             </h1>
 
             <div className="mt-5 w-full max-w-[490px] flex items-center justify-center px-5 py-2.5 rounded-xl border border-white/90 text-white font-bold text-base sm:text-[17px] select-none">
@@ -356,11 +361,11 @@ export default function Home({ onNavigateToTab, setFocusMode, customer = null })
           </div>
 
           <div className="mt-4 space-y-2 text-sm sm:text-[15px] text-[#6B581B] font-light leading-relaxed">
-            <p>1. Cancellation are accepted at least 24 hours before your scheduled booking.</p>
-            <p>2. Less than 24 hours before the schedule, cancellations are not allowed.</p>
-            <p>3. Bookings are transferable to another person, but payments are non-refundable.</p>
-            <p>4. Player limit (Court Rental): 1 hour - 4 pax | 2 hours - 8 pax | 3 hours and above - 12 pax</p>
-            <p>5. Court Rental Rates: Daytime (minimum of 2 hours) - 200 | Nighttime (1 hour is allowed) - 300</p>
+            <p>1. Full payment is required to confirm your booking. All bookings are non-refundable.</p>
+            <p>2. Cancellations and reschedules must be made at least 24 hours before your schedule (reschedules are subject to availability).</p>
+            <p>3. Court Rental Rates: Daytime 6 AM – 4 PM ₱200/hr (minimum 2 hours) | Nighttime 4 PM – 2 AM ₱300/hr (1 hour allowed)</p>
+            <p>4. Player limit: 1 hour - 4 pax | 2 hours - 8 pax | 3 hours and above - 12 pax (extra players ₱100 each)</p>
+            <p>5. Rain: before your schedule, move your booking to another date. During play, see the full policy.</p>
           </div>
 
           <button

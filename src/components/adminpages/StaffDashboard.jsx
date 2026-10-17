@@ -1,11 +1,39 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Megaphone, MoreVertical, Pin } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Megaphone, Pin } from 'lucide-react';
 import ViewAnnouncementModal from './ViewAnnouncementsModal';
+import { fetchDashboardData } from '../../../lib/bookingService';
+import { useAuth } from '../../context/AuthContext';
+import DashboardBookingModals, { STATUS_COLORS, StatusLegend } from './DashboardBookingModals';
+import { fetchAnnouncements } from '../../../lib/announcementService';
+
+
+
+
+// =============================================================================
+// STAFF DASHBOARD
+// - No revenue (owner only). Court Rental is the only booking type.
+// - Announcements are read-only for staff (owner posts / edits / deletes).
+// - Booking, payment and check-in are all automatic, so staff have nothing to confirm.
+// - Add Booking lives in the main header, so it is not repeated here.
+// - Layout: same as the original dashboard. The revenue card is replaced by a
+//   date and time card, next to the (read-only) Announcements.
+// - Timeline blocks open View Details; week cards open the Calendar.
+//
+// Prop (optional, wire it to your router / tab state):
+//   onNavigateTab(tabKey, params)  switches tab; params is an optional filter, e.g.
+//                                  { bookingId: 'CR-1008' } or { date: '2026-10-16' }
+// =============================================================================
+
+
+
 
 // Operating hours: 6:00 AM to 2:00 AM (20 hours). Hours past midnight run 24-26.
 const OPEN_HOUR = 6;
 const CLOSE_HOUR = 26;
 const TOTAL_HOURS = CLOSE_HOUR - OPEN_HOUR;
+
+
+
 
 // Labels sit ON the hour line (left edge = start of that hour)
 const TIMELINE_TICKS = [
@@ -21,51 +49,10 @@ const TIMELINE_TICKS = [
   { hour: 24, label: '12AM' },
   { hour: 26, label: '2AM' },
 ];
-// Today's court rentals (Court Rental only)
-const TODAY_BOOKINGS = [
-  { id: 'CR-1007', customer: 'Crystal Florano', startHour: 7, durationHours: 3, pax: 8 },
-  { id: 'CR-1008', customer: 'Mark Deniña', startHour: 11.5, durationHours: 3, pax: 6 },
-  { id: 'CR-1009', customer: 'Alyssa Cruz', startHour: 15.5, durationHours: 2.5, pax: 8 },
-  { id: 'CR-1010', customer: 'Joseph Armia', startHour: 19, durationHours: 3, pax: 8 },
-  { id: 'CR-1011', customer: 'Brian Oconer', startHour: 23, durationHours: 2, pax: 6 },
-];
 
 
 
 
-// Week ahead, Monday to Sunday. Index 0 = Monday. Dates are computed from today.
-const WEEK_COUNTS = [
-  { bookingsCount: 6, totalRentalHours: 12 },
-  { bookingsCount: 7, totalRentalHours: 13 },
-  { bookingsCount: 8, totalRentalHours: 14.5 },
-  { bookingsCount: 7, totalRentalHours: 14 },
-  { bookingsCount: 9, totalRentalHours: 17 },
-  { bookingsCount: 11, totalRentalHours: 19 },
-  { bookingsCount: 10, totalRentalHours: 18 },
-];
-const DAY_LABELS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-
-
-
-
-const INITIAL_ANNOUNCEMENTS = [
-  {
-    id: 'ANN-1',
-    postedText: 'Posted Sep 3, 4:00 PM',
-    title: 'Court Rate Adjustment',
-    description:
-      'Daytime rate is now ₱250/hr (was ₱200/hr) and Nighttime rate is now ₱350/hr (was ₱300/hr).',
-    pinned: false,
-  },
-  {
-    id: 'ANN-2',
-    postedText: 'Posted Sep 2, 2:00 PM',
-    title: 'Equipment Rental Rate Increase',
-    description:
-      'Paddle rental is updated to ₱150/session (was ₱100) and Ball rental to ₱75/session (was ₱50).',
-    pinned: false,
-  },
-];
 
 
 
@@ -104,8 +91,11 @@ const pct = (hour) => ((hour - OPEN_HOUR) / TOTAL_HOURS) * 100;
 
 
 
-export default function StaffDashboard({ onNavigateTab } = {}) {
-  const goTo = (tab, params) => onNavigateTab && onNavigateTab(tab, params);
+export default function StaffDashboard({ onNavigateTab, refreshKey } = {}) {
+  // Court Attendants only view bookings; other staff can reschedule / cancel
+  const { role } = useAuth();
+  const canManage = role !== 'Court Attendant';
+  const [viewingBooking, setViewingBooking] = useState(null); // clicked timeline booking
 
 
 
@@ -120,8 +110,36 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
 
 
 
-  const [announcements] = useState(INITIAL_ANNOUNCEMENTS);
-  const [menuOpenId, setMenuOpenId] = useState(null);
+  // Real bookings for the timeline + week ahead (no revenue for staff)
+  const [dash, setDash] = useState({ today: [], week: [] });
+  const [dashLoading, setDashLoading] = useState(true);
+  const loadDashboard = useCallback(async () => {
+    try {
+      const data = await fetchDashboardData();
+      setDash({ today: data.today, week: data.week });
+    } catch {
+      // keep the last data on screen
+    } finally {
+      setDashLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    loadDashboard();
+    const timer = setInterval(loadDashboard, 60000);
+    return () => clearInterval(timer);
+  }, [loadDashboard, refreshKey]);
+
+  // Announcements posted by the owner (read-only here)
+  const [announcements, setAnnouncements] = useState([]);
+  useEffect(() => {
+    const load = () =>
+      fetchAnnouncements()
+        .then(setAnnouncements)
+        .catch(() => {});
+    load();
+    const timer = setInterval(load, 60000);
+    return () => clearInterval(timer);
+  }, []);
   const [viewingAnnouncement, setViewingAnnouncement] = useState(null);
   const sortedAnnouncements = useMemo(
     () => [...announcements.filter((a) => a.pinned), ...announcements.filter((a) => !a.pinned)],
@@ -146,27 +164,8 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
 
 
 
-  // Week strip: real dates Monday to Sunday of the current week
-  const weekDays = useMemo(() => {
-    const todayIdx = (clock.getDay() + 6) % 7; // Monday = 0
-    const monday = new Date(clock);
-    monday.setDate(clock.getDate() - todayIdx);
-    return WEEK_COUNTS.map((c, i) => {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      return {
-        ...c,
-        day: DAY_LABELS[i],
-        dateISO: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-          d.getDate()
-        ).padStart(2, '0')}`,
-        isToday: i === todayIdx,
-      };
-    });
-  }, [clock]);
-
-
-
+  // Week strip: Monday to Sunday of the current week (real counts)
+  const weekDays = dash.week;
 
   return (
     <div
@@ -269,65 +268,26 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
               </div>
             )}
             {sortedAnnouncements.map((ann) => (
-              <div
+              // Read-only for staff: click the card to open the announcement
+              <button
+                type="button"
                 key={ann.id}
-                className="bg-[#ffffff] border border-[#121212] rounded-xl p-3 space-y-1 relative"
+                onClick={() => setViewingAnnouncement(ann)}
+                title="View announcement"
+                className="w-full text-left bg-[#ffffff] border border-[#121212] rounded-xl p-3 space-y-1 relative cursor-pointer hover:bg-[#fbfaf1] transition-colors"
               >
-                {/* Timestamp and view menu */}
-                <div className="flex items-center justify-between text-[11px] text-[#6b7280]">
-                  <span className="flex items-center gap-1.5">
-                    {ann.pinned && <Pin className="w-3 h-3 fill-[#121212] text-[#121212]" />}
-                    {ann.postedText}
-                  </span>
-
-
-
-
-                  <div className="relative">
-                    <button
-                      type="button"
-                      aria-label={`View ${ann.title}`}
-                      aria-expanded={menuOpenId === ann.id}
-                      onClick={() => setMenuOpenId((currentId) => (currentId === ann.id ? null : ann.id))}
-                      className="p-0.5 text-[#121212] rounded hover:bg-[#fbfaf1] transition-colors cursor-pointer"
-                    >
-                      <MoreVertical className="w-3.5 h-3.5 stroke-[2]" />
-                    </button>
-
-
-
-
-                    {menuOpenId === ann.id && (
-                      <div className="absolute right-0 top-full z-20 mt-1 min-w-[110px] rounded-md border border-[#121212] bg-[#ffffff] p-1 shadow-lg">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setViewingAnnouncement(ann);
-                            setMenuOpenId(null);
-                          }}
-                          className="w-full rounded px-2.5 py-1.5 text-left text-xs font-medium text-[#121212] hover:bg-[#f5ffd9] cursor-pointer"
-                        >
-                          View announcement
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                {/* Timestamp */}
+                <div className="flex items-center gap-1.5 text-[11px] text-[#6b7280]">
+                  {ann.pinned && <Pin className="w-3 h-3 fill-[#121212] text-[#121212]" />}
+                  {ann.postedText}
                 </div>
 
-
-
-
                 {/* Title */}
-                <h3 className="font-bold text-xs sm:text-[13px] text-[#121212] leading-tight">
-                  {ann.title}
-                </h3>
+                <h3 className="font-bold text-xs sm:text-[13px] text-[#121212] leading-tight">{ann.title}</h3>
 
-
-
-
-                {/* Description */}
-                <p className="text-[11px] text-[#6b7280] leading-snug">{ann.description}</p>
-              </div>
+                {/* Description (shortened; the full text is in the View modal) */}
+                <p className="text-[11px] text-[#6b7280] leading-snug line-clamp-2">{ann.description}</p>
+              </button>
             ))}
           </div>
         </section>
@@ -347,12 +307,8 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
               Operating hours: 6:00 AM to 2:00 AM (Single Main Court)
             </p>
           </div>
-          <div className="flex items-center gap-2.5 text-[10px] sm:text-[11px] text-[#4a4a42]">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-xs bg-[#ccff00] border border-[#121212]" />
-              Court Rental
-            </span>
-          </div>
+          {/* Status legend (same colours as Bookings and Calendar) */}
+          <StatusLegend />
         </div>
 
 
@@ -397,16 +353,24 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
 
 
 
-                {TODAY_BOOKINGS.map((b) => (
+                {!dashLoading && dash.today.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[#6b7280]">
+                    No court rentals today.
+                  </div>
+                )}
+
+                {dash.today.map((b) => (
                   <button
                     type="button"
                     key={b.id}
-                    onClick={() => goTo(TAB_KEYS.bookings, { bookingId: b.id })}
+                    onClick={() => setViewingBooking(b.row)}
                     style={{
                       left: `${pct(b.startHour)}%`,
                       width: `${(b.durationHours / TOTAL_HOURS) * 100}%`,
+                      backgroundColor: (STATUS_COLORS[b.status] || STATUS_COLORS.Reserved).bg,
+                      color: (STATUS_COLORS[b.status] || STATUS_COLORS.Reserved).text,
                     }}
-                    className="absolute top-0.5 bottom-0.5 rounded-md border border-[#121212] bg-[#ccff00] text-[#121212] px-2 py-0.5 flex flex-col justify-center text-left shadow-xs overflow-hidden cursor-pointer hover:bg-[#b8e600] transition-colors"
+                    className="absolute top-0.5 bottom-0.5 rounded-md border border-[#121212] px-2 py-0.5 flex flex-col justify-center text-left shadow-xs overflow-hidden cursor-pointer hover:brightness-95 transition-all"
                     title={`${b.customer} (${formatHourLabel(b.startHour)} – ${formatHourLabel(
                       b.startHour + b.durationHours
                     )}) · ${b.pax} pax`}
@@ -440,7 +404,8 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
             <button
               type="button"
               key={d.day}
-              onClick={() => goTo(TAB_KEYS.bookings, { date: d.dateISO })}
+              onClick={() => onNavigateTab?.('CALENDAR')}
+              title="Open the Calendar"
               className={`text-left cursor-pointer rounded-lg border p-2 sm:p-2.5 flex flex-col justify-between space-y-1.5 transition-all bg-[#fbfaf1] ${
                 d.isToday
                   ? 'border-[#121212] ring-1 ring-[#121212] shadow-xs'
@@ -479,6 +444,15 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
 
 
 
+      {/* Clicked timeline booking: same View / Reschedule / Cancel modals as Bookings */}
+      <DashboardBookingModals
+        booking={viewingBooking}
+        canManage={canManage}
+        onClose={() => setViewingBooking(null)}
+        onReopen={setViewingBooking}
+        onChanged={loadDashboard}
+      />
+
       {/* Read-only announcement details: using the shared modal without onEdit,
           so the Edit button is hidden for staff. */}
       {viewingAnnouncement && (
@@ -491,8 +465,3 @@ export default function StaffDashboard({ onNavigateTab } = {}) {
     </div>
   );
 }
-
-
-
-
-

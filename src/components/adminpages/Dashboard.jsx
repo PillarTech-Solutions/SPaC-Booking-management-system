@@ -1,9 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Megaphone, MoreVertical, Pin } from 'lucide-react';
 import AddAnnouncement from './AddAnnouncement';
 import AnnouncementMenu from './AnnouncementMenu';
 import ViewAnnouncementModal from './ViewAnnouncementsModal';
 import DeleteAnnouncementModal from './DeleteAnnouncementsModal';
+import { fetchDashboardData } from '../../../lib/bookingService';
+import DashboardBookingModals, { STATUS_COLORS, StatusLegend } from './DashboardBookingModals';
+import {
+  fetchAnnouncements,
+  createAnnouncement,
+  updateAnnouncement,
+  setAnnouncementPinned,
+  deleteAnnouncement,
+} from '../../../lib/announcementService';
 
 // Operating hours: 6:00 AM to 2:00 AM (20 hours continuous)
 const TIMELINE_TICKS = [
@@ -20,149 +29,47 @@ const TIMELINE_TICKS = [
   { hour: 26, label: '2AM' },
 ];
 
-// Single Court Today's Schedule (6:00 AM to 2:00 AM = 20 operating hours)
-// Only Court Rental events accommodated; shows primary booker customer name
-const TODAY_TIMELINE_BOOKINGS = [
-  {
-    id: 'CR-1007',
-    customer: 'Crystal Florano',
-    startHour: 7,
-    durationHours: 3, // 7:00 AM - 10:00 AM
-    pax: '8 pax',
-    status: 'Completed',
-  },
-  {
-    id: 'CR-1008',
-    customer: 'Mark Deniña',
-    startHour: 11.5,
-    durationHours: 3, // 11:30 AM - 2:30 PM
-    pax: '6 pax',
-    status: 'In Progress',
-  },
-  {
-    id: 'CR-1009',
-    customer: 'Alyssa Cruz',
-    startHour: 15.5,
-    durationHours: 2.5, // 3:30 PM - 6:00 PM
-    pax: '8 pax',
-    status: 'Reserved',
-  },
-  {
-    id: 'CR-1010',
-    customer: 'Joseph Armia',
-    startHour: 19,
-    durationHours: 3, // 7:00 PM - 10:00 PM
-    pax: '8 pax',
-    status: 'Reserved',
-  },
-  {
-    id: 'CR-1011',
-    customer: 'Brian Oconer',
-    startHour: 23,
-    durationHours: 2, // 11:00 PM - 1:00 AM
-    pax: '6 pax',
-    status: 'Reserved',
-  },
-];
+// Timeline scale: 6:00 AM (6) to 2:00 AM (26)
+const OPEN_HOUR = 6;
+const TOTAL_HOURS = 20;
+const pct = (hour) => ((hour - OPEN_HOUR) / TOTAL_HOURS) * 100;
 
-// Week Ahead Occupancy (Mon to Sun)
-// Only shows: Mon to Sun, number of bookings, total court rental hours booked
-const WEEK_AHEAD_DAYS = [
-  {
-    day: 'MON',
-    fullDay: 'Monday',
-    dateStr: 'Oct 12',
-    bookingsCount: 6,
-    totalRentalHours: 12,
-    isToday: false,
-  },
-  {
-    day: 'TUE',
-    fullDay: 'Tuesday',
-    dateStr: 'Oct 13',
-    bookingsCount: 7,
-    totalRentalHours: 13,
-    isToday: false,
-  },
-  {
-    day: 'WED',
-    fullDay: 'Wednesday',
-    dateStr: 'Oct 14',
-    bookingsCount: 8,
-    totalRentalHours: 14.5,
-    isToday: true,
-  },
-  {
-    day: 'THU',
-    fullDay: 'Thursday',
-    dateStr: 'Oct 15',
-    bookingsCount: 7,
-    totalRentalHours: 14,
-    isToday: false,
-  },
-  {
-    day: 'FRI',
-    fullDay: 'Friday',
-    dateStr: 'Oct 16',
-    bookingsCount: 9,
-    totalRentalHours: 17,
-    isToday: false,
-  },
-  {
-    day: 'SAT',
-    fullDay: 'Saturday',
-    dateStr: 'Oct 17',
-    bookingsCount: 11,
-    totalRentalHours: 19,
-    isToday: false,
-  },
-  {
-    day: 'SUN',
-    fullDay: 'Sunday',
-    dateStr: 'Oct 18',
-    bookingsCount: 10,
-    totalRentalHours: 18,
-    isToday: false,
-  },
-];
-
-// Initial Announcements: exactly 2 examples as requested
-const INITIAL_ANNOUNCEMENTS = [
-  {
-    id: 'ANN-1',
-    postedText: 'Posted Sep 3, 4:00 PM',
-    title: 'Court Rate Adjustment',
-    description:
-      'Daytime rate is now ₱250/hr (was ₱200/hr) and Nighttime rate is now ₱350/hr (was ₱300/hr).',
-    pinned: false,
-  },
-  {
-    id: 'ANN-2',
-    postedText: 'Posted Sep 2, 2:00 PM',
-    title: 'Equipment Rental Rate Increase',
-    description:
-      'Paddle rental is updated to ₱150/session (was ₱100) and Ball rental to ₱75/session (was ₱50).',
-    pinned: false,
-  },
-];
-
-// Format an ISO date into "Posted Sep 3, 4:00 PM"
-const formatPostedText = (iso) => {
-  const d = iso ? new Date(iso) : new Date();
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const time = d.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
+export default function Dashboard({ onAddBookingClick, onNavigateTab, refreshKey } = {}) {
+  // ---------------------------------------------------------------------------
+  // REAL BOOKING DATA (timeline, week ahead, revenue)
+  // ---------------------------------------------------------------------------
+  const [dash, setDash] = useState({
+    today: [],
+    week: [],
+    revenue: { courtFees: 0, extraPlayers: 0, equipment: 0, total: 0 },
   });
-  return `Posted ${date}, ${time}`;
-};
+  const [dashLoading, setDashLoading] = useState(true);
+  const [viewingBooking, setViewingBooking] = useState(null); // clicked timeline booking
+  const [dashError, setDashError] = useState('');
 
-export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
+  const loadDashboard = useCallback(async () => {
+    try {
+      setDash(await fetchDashboardData());
+      setDashError('');
+    } catch (err) {
+      setDashError(err.message);
+    } finally {
+      setDashLoading(false);
+    }
+  }, []);
+
+  // Load now, after "Add Booking" saves (refreshKey), and every minute
+  useEffect(() => {
+    loadDashboard();
+    const timer = setInterval(loadDashboard, 60000);
+    return () => clearInterval(timer);
+  }, [loadDashboard, refreshKey]);
+
   // ---------------------------------------------------------------------------
   // ANNOUNCEMENT STATE
   // ---------------------------------------------------------------------------
-  const [announcements, setAnnouncements] = useState(INITIAL_ANNOUNCEMENTS);
+  const [announcements, setAnnouncements] = useState([]); // saved in the database
+  const [annError, setAnnError] = useState('');
   const [menuOpenId, setMenuOpenId] = useState(null); // which kebab menu is open
   const [menuAnchor, setMenuAnchor] = useState(null); // position of the clicked three-dots button
   const [isAddOpen, setIsAddOpen] = useState(false); // "+ New" modal
@@ -178,42 +85,52 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
     return [...pinned, ...rest];
   }, [announcements]);
 
-  // Add new announcement (from AddAnnouncement modal)
-  const handleAddAnnouncement = (data) => {
-    const newItem = {
-      id: `ANN-${Date.now()}`,
-      postedText: formatPostedText(data.createdAt),
-      title: data.title,
-      description: data.message,
-      pinned: data.isPinned,
-    };
-    setAnnouncements((prev) => [newItem, ...prev]);
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      setAnnouncements(await fetchAnnouncements());
+      setAnnError('');
+    } catch (err) {
+      setAnnError(err.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAnnouncements();
+    const timer = setInterval(loadAnnouncements, 60000);
+    return () => clearInterval(timer);
+  }, [loadAnnouncements]);
+
+  // Runs a save, then reloads the list (errors show above the list)
+  const saveAndReload = async (action) => {
+    try {
+      await action();
+      await loadAnnouncements();
+    } catch (err) {
+      setAnnError(err.message);
+    }
   };
+
+  // Add new announcement (from AddAnnouncement modal)
+  const handleAddAnnouncement = (data) =>
+    saveAndReload(() => createAnnouncement({ title: data.title, message: data.message, isPinned: data.isPinned }));
 
   // Pin / Unpin from kebab menu
   const handlePin = (ann) => {
     if (!ann) return;
-    setAnnouncements((prev) =>
-      prev.map((a) => (a.id === ann.id ? { ...a, pinned: !a.pinned } : a))
-    );
+    saveAndReload(() => setAnnouncementPinned(ann.id, !ann.pinned));
   };
 
   // Save edits (from AddAnnouncement modal in edit mode)
   const handleSaveEdit = (data) => {
-    if (!editingAnnouncement) return;
-    setAnnouncements((prev) =>
-      prev.map((a) =>
-        a.id === editingAnnouncement.id
-          ? { ...a, title: data.title, description: data.message, pinned: data.isPinned }
-          : a
-      )
-    );
+    const id = editingAnnouncement?.id; // read now: the modal closes right after
+    if (!id) return;
+    saveAndReload(() => updateAnnouncement(id, { title: data.title, message: data.message, isPinned: data.isPinned }));
   };
 
   // Delete (called by DeleteAnnouncementModal, which also closes itself)
   const handleDelete = (ann) => {
     if (!ann) return;
-    setAnnouncements((prev) => prev.filter((a) => a.id !== ann.id));
+    saveAndReload(() => deleteAnnouncement(ann.id));
   };
 
   // Open / close a kebab menu, remembering where the button is on screen
@@ -263,17 +180,17 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
     setEditFromView(false);
   };
 
-  // 1. TODAY'S REVENUE BREAKDOWN
-  // Total: ₱8,000
-  // Breakdown of the 3: Court Fees (₱4,750), Extra Players (₱2,000), Equipment (₱1,250)
+  // 1. TODAY'S REVENUE BREAKDOWN (payments received today)
+  const rev = dash.revenue;
+  const share = (n) => (rev.total > 0 ? (n / rev.total) * 100 : 0);
   const revenueData = {
-    courtFees: 4750,
-    extraPlayers: 2000,
-    equipment: 1250,
-    total: 8000,
-    courtPct: (4750 / 8000) * 100, // 59.375%
-    extraPct: (2000 / 8000) * 100, // 25%
-    equipPct: (1250 / 8000) * 100, // 15.625%
+    courtFees: rev.courtFees,
+    extraPlayers: rev.extraPlayers,
+    equipment: rev.equipment,
+    total: rev.total,
+    courtPct: share(rev.courtFees),
+    extraPct: share(rev.extraPlayers),
+    equipPct: share(rev.equipment),
   };
 
   // Convert hour number to readable time
@@ -327,7 +244,7 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
               Today’s Revenue
             </h2>
             <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#ccff00] text-[#121212] select-none shadow-2xs">
-              Live Update
+              {dashLoading ? 'Loading...' : 'Live Update'}
             </span>
           </div>
 
@@ -414,6 +331,12 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
 
           {/* Announcements Card Body (the kebab menu floats above via a portal, so no extra padding needed) */}
           <div className="p-3.5 sm:p-4 space-y-3 bg-[#ffffff] overflow-y-auto max-h-[220px]">
+            {annError && (
+              <div className="px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[11px] font-medium">
+                {annError}
+              </div>
+            )}
+
             {sortedAnnouncements.length === 0 && (
               <div className="text-[11px] text-[#6b7280] text-center py-6">
                 No announcements yet. Click “+ New” to add one.
@@ -487,13 +410,8 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
             </p>
           </div>
 
-          {/* Quick Legend: Court Rental only */}
-          <div className="flex items-center gap-2.5 text-[10px] sm:text-[11px] text-[#4a4a42]">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-xs bg-[#ccff00] border border-[#121212]" />
-              Court Rental
-            </span>
-          </div>
+          {/* Status legend (same colours as Bookings and Calendar) */}
+          <StatusLegend />
         </div>
 
         {/* Scrollable Timeline Grid Container */}
@@ -502,11 +420,17 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
             {/* Header row: COURT on left, then time markers 6AM to 2AM */}
             <div className="grid grid-cols-[100px_1fr] text-[10px] font-bold text-[#6b7280] uppercase tracking-wider px-1">
               <div>COURT</div>
-              <div className="grid grid-cols-10 text-center">
-                {TIMELINE_TICKS.slice(0, 10).map((tick) => (
-                  <div key={tick.hour} className="truncate">
+              <div className="relative h-4">
+                {TIMELINE_TICKS.map((tick, i) => (
+                  <span
+                    key={tick.hour}
+                    style={{ left: `${pct(tick.hour)}%` }}
+                    className={`absolute top-0 whitespace-nowrap ${
+                      i === 0 ? '' : i === TIMELINE_TICKS.length - 1 ? '-translate-x-full' : '-translate-x-1/2'
+                    }`}
+                  >
                     {tick.label}
-                  </div>
+                  </span>
                 ))}
               </div>
             </div>
@@ -526,31 +450,41 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
                   ))}
                 </div>
 
-                {/* Plotted Bookings */}
-                {TODAY_TIMELINE_BOOKINGS.map((b) => {
-                  const totalOperatingHours = 20;
-                  const leftPct = ((b.startHour - 6) / totalOperatingHours) * 100;
-                  const widthPct = (b.durationHours / totalOperatingHours) * 100;
+                {/* No bookings today */}
+                {!dashLoading && dash.today.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center text-[11px] text-[#6b7280]">
+                    No court rentals today.
+                  </div>
+                )}
+
+                {/* Plotted Bookings (real, cancelled ones left out) */}
+                {dash.today.map((b) => {
+                  const leftPct = pct(b.startHour);
+                  const widthPct = (b.durationHours / TOTAL_HOURS) * 100;
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={b.id}
+                      onClick={() => setViewingBooking(b.row)}
                       style={{
                         left: `${leftPct}%`,
                         width: `${widthPct}%`,
+                        backgroundColor: (STATUS_COLORS[b.status] || STATUS_COLORS.Reserved).bg,
+                        color: (STATUS_COLORS[b.status] || STATUS_COLORS.Reserved).text,
                       }}
-                      className="absolute top-0.5 bottom-0.5 rounded-md border border-[#121212] bg-[#ccff00] text-[#121212] px-2 py-0.5 flex flex-col justify-center shadow-xs overflow-hidden"
+                      className="absolute top-0.5 bottom-0.5 rounded-md border border-[#121212] px-2 py-0.5 flex flex-col justify-center text-left shadow-xs overflow-hidden cursor-pointer hover:brightness-95 transition-all"
                       title={`${b.customer} (${formatHourLabel(b.startHour)} – ${formatHourLabel(
                         b.startHour + b.durationHours
-                      )}) · ${b.pax}`}
+                      )}) · ${b.pax} pax · ${b.status}`}
                     >
                       <div className="text-[10px] font-bold truncate leading-tight">
                         {b.customer}
                       </div>
                       <div className="text-[9px] font-semibold opacity-90 truncate leading-none mt-0.5">
-                        {b.pax}
+                        {b.pax} pax
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -563,17 +497,21 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
       {/* ROW 3: WEEK AHEAD OCCUPANCY                                               */}
       {/* ========================================================================= */}
       <section className="w-full bg-[#ffffff] border border-[#121212] rounded-xl sm:rounded-2xl p-3.5 sm:p-4 shadow-xs space-y-2.5">
-        <div>
+        <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm sm:text-base font-bold text-[#121212] tracking-tight">
             Week Ahead Occupancy
           </h2>
+          {dashError && <span className="text-[11px] font-semibold text-red-600">{dashError}</span>}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 sm:gap-2.5">
-          {WEEK_AHEAD_DAYS.map((d) => (
-            <div
+          {dash.week.map((d) => (
+            <button
+              type="button"
               key={d.day}
-              className={`rounded-lg border p-2 sm:p-2.5 flex flex-col justify-between space-y-1.5 transition-all ${
+              onClick={() => onNavigateTab?.('CALENDAR')}
+              title="Open the Calendar"
+              className={`text-left cursor-pointer rounded-lg border p-2 sm:p-2.5 flex flex-col justify-between space-y-1.5 transition-all ${
                 d.isToday
                   ? 'bg-[#fbfaf1] border-[#121212] ring-1 ring-[#121212] shadow-xs'
                   : 'bg-[#fbfaf1] border-[#dedbc4] hover:border-[#121212]/50'
@@ -605,7 +543,7 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
                   </strong>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </section>
@@ -655,6 +593,14 @@ export default function Dashboard({ onAddBookingClick, onNavigateTab } = {}) {
           onEdit={openEditFromView}
         />
       )}
+
+      {/* Clicked timeline booking: same View / Reschedule / Cancel modals as Bookings */}
+      <DashboardBookingModals
+        booking={viewingBooking}
+        onClose={() => setViewingBooking(null)}
+        onReopen={setViewingBooking}
+        onChanged={loadDashboard}
+      />
 
       {/* Delete confirmation (from kebab -> Delete) */}
       {deletingAnnouncement && (

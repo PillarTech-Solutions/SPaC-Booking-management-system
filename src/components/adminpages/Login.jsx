@@ -13,12 +13,16 @@ export default function Login() {
   const [formError, setFormError] = useState('');
 
   const passwordRef = useRef(null);
+  // true while a sign-in is being checked, so the redirect below doesn't run
+  // before we know whether the account is staff
+  const checkingRef = useRef(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { signIn, user, role, authError, setAuthError, isConfigured } = useAuth();
+  const { signIn, signOut, user, role, authError, setAuthError, isConfigured } = useAuth();
 
   // Redirect if already logged in
   useEffect(() => {
+    if (checkingRef.current) return;
     if (user && role) {
       if (role === 'Customer') {
         navigate('/customer', { replace: true });
@@ -51,21 +55,27 @@ export default function Login() {
     }
 
     setIsSubmitting(true);
+    checkingRef.current = true;
     try {
       const res = await signIn(cleanEmail, password);
       if (res.success) {
-        if (res.role === 'Customer') {
-          navigate('/customer', { replace: true });
-        } else {
-          const dest = location.state?.from?.pathname || '/';
-          navigate(dest, { replace: true });
+        // Management Access is for staff accounts only
+        if (res.role === 'Customer' || res.profile?.type === 'customer') {
+          await signOut();
+          setFormError(
+            'This login is for staff only. Customers, please log in on the booking site.'
+          );
+          return;
         }
+        const dest = location.state?.from?.pathname || '/';
+        navigate(dest, { replace: true });
       } else {
         setFormError(res.error || 'Failed to sign in.');
       }
     } catch (err) {
       setFormError(err.message || 'An unexpected error occurred.');
     } finally {
+      checkingRef.current = false;
       setIsSubmitting(false);
     }
   };

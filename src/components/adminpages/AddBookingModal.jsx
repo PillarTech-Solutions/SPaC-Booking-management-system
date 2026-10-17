@@ -22,27 +22,36 @@ const BOOKING_SOURCES = ['Walk-in', 'Phone', 'Social Media'];
 
 const PAYMENT_METHODS = ['Cash', 'GCash', 'Maya', 'Bank Transfer'];
 
-export default function AddBookingModal({ isOpen = true, onClose, onBookingAdded }) {
+// initialData (optional, e.g. from the Calendar's "+ Book"):
+//   { date: { year, month, day }, startTime: '6:00 PM' } pre-fills Session Details
+export default function AddBookingModal({ isOpen = true, onClose, onBookingAdded, initialData = null }) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const [currentStep, setCurrentStep] = useState(1);
 
   // Step 1: Session Details State
-  const [selectedDate, setSelectedDate] = useState(null); // { year, month, dayNumber }
-  const [dateDisplay, setDateDisplay] = useState('');
+  const initDate = initialData?.date || null;
+  const [selectedDate, setSelectedDate] = useState(
+    initDate ? { year: initDate.year, month: initDate.month, dayNumber: initDate.day } : null
+  ); // { year, month, dayNumber }
+  const [dateDisplay, setDateDisplay] = useState(
+    initDate
+      ? `${String(initDate.day).padStart(2, '0')}/${String(initDate.month + 1).padStart(2, '0')}/${initDate.year}`
+      : ''
+  );
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [viewYear, setViewYear] = useState(initDate ? initDate.year : today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(initDate ? initDate.month : today.getMonth());
 
-  const [startTime, setStartTime] = useState('');
+  const [startTime, setStartTime] = useState(initialData?.startTime || '');
   const [isStartTimeOpen, setIsStartTimeOpen] = useState(false);
   const [availableTimes, setAvailableTimes] = useState([]); // [{ label, available, reason }]
   const [loadingTimes, setLoadingTimes] = useState(false);
 
   // Start at the lowest allowed values (like the equipment counters).
   // Picking a daytime start bumps the duration to 2 hrs automatically.
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState(() => minDurationFor(initialData?.startTime || ''));
   const [players, setPlayers] = useState(1);
   const minDuration = minDurationFor(startTime);
   // Once a start time is picked, the duration can only go up to the next booking / 2:00 AM closing

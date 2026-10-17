@@ -34,14 +34,20 @@ export default function BookingsViewModal({
   if (!isOpen || !booking) return null;
 
   // Allowed actions (same rules as the table menu)
-  //  Reserved: Reschedule + Cancel | Cancelled: Reschedule | On-going / Completed: view only
+  //  Reserved: Reschedule + Cancel | On-going: Reschedule + Cancel for rain only
+  //  Cancelled: Reschedule | Completed: view only
   const isCustomer = variant === 'customer';
   const canReschedule = readOnly
     ? false
     : isCustomer
     ? Boolean(booking.canReschedule)
-    : booking.status === 'Reserved' || booking.status === 'Cancelled';
-  const canCancel = readOnly ? false : isCustomer ? Boolean(booking.canCancel) : booking.status === 'Reserved';
+    : ['Reserved', 'On-going', 'Cancelled'].includes(booking.status);
+  // On-going: staff may still cancel / reschedule, but only for rain (the modals limit the reason)
+  const canCancel = readOnly
+    ? false
+    : isCustomer
+    ? Boolean(booking.canCancel)
+    : booking.status === 'Reserved' || booking.status === 'On-going';
   const hideNotes = readOnly || isCustomer;
 
   const breakdown = booking.breakdown || {};

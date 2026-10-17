@@ -35,7 +35,13 @@ export default function BookingsCancelModal({
   variant = 'admin',
 }) {
   const isCustomer = variant === 'customer';
-  const reasonOptions = isCustomer ? CUSTOMER_CANCELLATION_REASONS : CANCELLATION_REASONS;
+  // During play (On-going), staff can only cancel because of the weather (rain policy)
+  const isDuringPlay = !isCustomer && booking?.status === 'On-going';
+  const reasonOptions = isCustomer
+    ? CUSTOMER_CANCELLATION_REASONS
+    : isDuringPlay
+    ? ['Inclement weather / Rain']
+    : CANCELLATION_REASONS;
   const [reason, setReason] = useState('');
   const [isReasonOpen, setIsReasonOpen] = useState(false);
   const [notes, setNotes] = useState('');
@@ -230,6 +236,14 @@ export default function BookingsCancelModal({
               </label>
             )}
           </div>
+
+
+          {isDuringPlay && (
+            <p className="mt-1 mb-1 p-2 bg-[#eff6ff] border border-[#bfdbfe] rounded-lg text-[11px] text-[#1d4ed8] leading-tight">
+              This game is in progress, so only weather can be the reason. Rain policy: more than 30 minutes played
+              counts as 1 hour; less than 30 minutes earns a 1-hour credit for rescheduling. Write the time played in Notes.
+            </p>
+          )}
 
           {isCustomer && (
             <p className="mt-1 text-[11px] font-semibold text-[#c42b2b] leading-tight">

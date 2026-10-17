@@ -42,7 +42,13 @@ export default function BookingsRescheduleModal({
   variant = 'admin',
 }) {
   const isCustomer = variant === 'customer';
-  const reasonOptions = isCustomer ? CUSTOMER_REASON_OPTIONS : REASON_OPTIONS;
+  // During play (On-going), staff can only reschedule because of the weather (rain policy)
+  const isDuringPlay = !isCustomer && booking?.status === 'On-going';
+  const reasonOptions = isCustomer
+    ? CUSTOMER_REASON_OPTIONS
+    : isDuringPlay
+    ? ['Weather condition / Rain']
+    : REASON_OPTIONS;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -499,6 +505,14 @@ export default function BookingsRescheduleModal({
               </label>
             )}
           </div>
+
+
+          {isDuringPlay && (
+            <p className="mt-1 mb-1 p-2 bg-[#eff6ff] border border-[#bfdbfe] rounded-lg text-[11px] text-[#1d4ed8] leading-tight">
+              This game is in progress, so only weather can be the reason. Rain policy: more than 30 minutes played
+              counts as 1 hour; less than 30 minutes earns a 1-hour credit for rescheduling. Write the time played in Notes.
+            </p>
+          )}
 
           {showCancellationPolicy && (
             <div className="mt-1.5 p-2 bg-neutral-100/90 rounded-lg text-[11px] text-[#525252] leading-tight animate-in fade-in duration-100">

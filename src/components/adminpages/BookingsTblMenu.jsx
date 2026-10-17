@@ -4,8 +4,9 @@ import { Eye, CalendarClock, Ban } from 'lucide-react';
 /**
  * BookingsTblMenu
  * Small kebab dropdown modal shown when clicking the three dots action button in Bookings table.
- * Available actions depend on the booking status:
+ * Available actions depend on the booking status (same rules as BookingsViewModal):
  *  - Reserved:  View, Reschedule, Cancel
+ *  - On-going:  View, Reschedule, Cancel (rain only — the modals limit the reason)
  *  - Cancelled: View, Reschedule
  *  - Completed: View only
  */
@@ -46,8 +47,9 @@ export default function BookingsTblMenu({
 
   // Which actions are allowed for this booking's status
   const status = booking?.status;
-  const canReschedule = status === 'Reserved' || status === 'Cancelled';
-  const canCancel = status === 'Reserved';
+  const isDuringPlay = status === 'On-going';
+  const canReschedule = status === 'Reserved' || status === 'Cancelled' || isDuringPlay;
+  const canCancel = status === 'Reserved' || isDuringPlay;
 
   return (
     <div
@@ -71,7 +73,7 @@ export default function BookingsTblMenu({
         <span>View</span>
       </button>
 
-      {/* Reschedule action (Reserved & Cancelled) */}
+      {/* Reschedule action (Reserved, Cancelled, On-going for rain) */}
       {canReschedule && (
         <button
           type="button"
@@ -83,11 +85,11 @@ export default function BookingsTblMenu({
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-[#121212] hover:bg-neutral-100 transition-colors cursor-pointer group"
         >
           <CalendarClock className="w-4 h-4 text-[#121212] group-hover:scale-105 transition-transform stroke-[1.9]" />
-          <span>Reschedule</span>
+          <span>{isDuringPlay ? 'Reschedule (Rain)' : 'Reschedule'}</span>
         </button>
       )}
 
-      {/* Cancel action (Reserved only), with separator */}
+      {/* Cancel action (Reserved, On-going for rain), with separator */}
       {canCancel && (
         <>
           <div className="w-full h-px bg-neutral-200/80 my-1" />
@@ -102,7 +104,7 @@ export default function BookingsTblMenu({
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50/80 transition-colors cursor-pointer group"
           >
             <Ban className="w-4 h-4 text-red-600 group-hover:scale-105 transition-all stroke-[1.9]" />
-            <span>Cancel</span>
+            <span>{isDuringPlay ? 'Cancel (Rain)' : 'Cancel'}</span>
           </button>
         </>
       )}

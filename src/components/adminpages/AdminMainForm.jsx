@@ -3,6 +3,7 @@ import { Calendar, Bell, Settings, Menu, X, Plus } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 import Dashboard from './Dashboard';
+import StaffDashboard from './StaffDashboard';
 import Bookings from './Bookings';
 import CalendarPage from './Calendar';
 import Reports from './Reports';
@@ -84,7 +85,10 @@ export default function AdminMainForm() {
     }
   }, [permittedTabs, activeTab, userRole, defaultTab]);
 
-  const ActivePage = PAGES[activeTab];
+  // Owner / Admin / Manager see the full dashboard (with revenue);
+  // other roles see the staff dashboard (no revenue, announcements read-only)
+  const isOwnerLevel = ['Owner', 'Admin', 'Manager'].includes(userRole);
+  const ActivePage = activeTab === 'DASHBOARD' && !isOwnerLevel ? StaffDashboard : PAGES[activeTab];
 
   // Specific role permissions for header actions
   const canAddBooking = ['Owner', 'Admin', 'Manager', 'Staff', 'Cashier'].includes(userRole);
@@ -305,6 +309,7 @@ export default function AdminMainForm() {
             <ActivePage
               onLogout={() => setIsLogoutConfirmOpen(true)}
               refreshKey={bookingsVersion}
+              onNavigateTab={(tab) => setActiveTab(String(tab).toUpperCase())}
             />
           ) : (
             <div className="py-24 text-center text-sm text-neutral-500">
@@ -316,10 +321,7 @@ export default function AdminMainForm() {
 
       {/* Footer */}
       <footer className="w-full h-[62px] mt-auto border-t border-[#c4c9ac] bg-[#eef0da] flex items-center shrink-0">
-        <div className="max-w-[1520px] w-full mx-auto px-5 sm:px-10 flex items-center justify-between h-full">
-          <span className="text-xs text-[#444933] font-medium">
-            Signed in as: <strong className="text-neutral-900">{currentUserData.name}</strong> ({userRole})
-          </span>
+        <div className="max-w-[1520px] w-full mx-auto px-5 sm:px-10 flex items-center justify-end h-full">
           <p className="text-xs sm:text-sm font-semibold text-[#444933] tracking-tight">
             © 2026 Saranay Pickleball. All rights reserved.
           </p>

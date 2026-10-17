@@ -7,6 +7,9 @@ import SettingsPageEditUnavailableSched from "./SettingsPageEditUnavailableSched
 import PopupSettingsSaveConfirmation from "./PopupSettingsSaveConfirmation";
 import PopupSettingsResetConfirmation from "./PopupSettingsResetConfirmation";
 import SettingsPageFaqs from "./SettingsPageFaqs";
+import { supabase } from "../../../lib/supabase_client";
+import { DEFAULT_SETTINGS } from "../../hooks/useSiteSettings";
+
 import {
   Building2,
   Image as ImageIcon,
@@ -128,36 +131,92 @@ function ActionBar({ onReset, onSave, saveLabel, section }) {
   );
 }
 
+
+
 /* ------------------------------ Tab: Business ---------------------------- */
-const INITIAL_BUSINESS = {
-  name: "Saranay Pickleball Court",
-  facebook: "facebook.com/saranaypickleball",
-  address: "Saranay Homes, Block 5 Lot 13 Saranay Road, Bagumbong, North Caloocan",
-  phonePrimary: "0921 000 8712",
-  phoneSecondary: "0960 000 0000",
-};
+const BUCKET = "site-assets";
+
+async function uploadImage(file, folder) {
+  const ext = file.name.split(".").pop();
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file);
+  if (error) throw error;
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  return { path, url: data.publicUrl };
+}
+
+const rowToForm = (r) => ({
+  name: r.business_name,
+  facebook: r.facebook,
+  address: r.address,
+  phonePrimary: r.phone_primary,
+  phoneSecondary: r.phone_secondary,
+  logoUrl: r.logo_url,
+  bannerUrl: r.banner_url,
+});
 
 function BusinessTab() {
-  const [form, setForm] = useState(INITIAL_BUSINESS);
-  const [gallery, setGallery] = useState([]); // starts empty
-  const [banner, setBanner] = useState(null); // starts empty
+  const [form, setForm] = useState(null); // null = still loading
+  const [gallery, setGallery] = useState([]);
+  const [status, setStatus] = useState(null); // { type: "info" | "error" | "ok", text }
   const uploadInputRef = useRef(null);
   const bannerInputRef = useRef(null);
+  const logoInputRef = useRef(null);
   const [isGalleryOpen, setIsGalleryOpen] = useState(false);
 
-  const addGalleryImages = (files) =>
-    setGallery((g) => [
-      ...g,
-      ...files.map((file, i) => ({
-        id: Date.now() + i,
-        src: URL.createObjectURL(file),
-      })),
-    ]);
+  // Load saved settings + gallery
+  useEffect(() => {
+    async function load() {
+      const [s, g] = await Promise.all([
+        supabase.from("site_settings").select("*").eq("id", 1).maybeSingle(),
+        supabase.from("gallery_images").select("*").order("created_at", { ascending: true }).order("id", { ascending: true }),
+      ]);
+      if (s.error) setStatus({ type: "error", text: s.error.message });
+      setForm(rowToForm({ ...DEFAULT_SETTINGS, ...(s.data || {}) }));
+      if (g.data) setGallery(g.data.map((r) => ({ id: r.id, src: r.url, path: r.path })));
+    }
+    load();
+  }, []);
 
-  const replaceGalleryImage = (id, file) =>
-    setGallery((g) =>
-      g.map((img) => (img.id === id ? { ...img, src: URL.createObjectURL(file) } : img))
-    );
+  /* ---- Gallery: uploads/removals apply immediately ---- */
+  const addGalleryImages = async (files) => {
+    setStatus({ type: "info", text: "Uploading..." });
+    try {
+      const added = [];
+      for (const file of files) {
+        const { path, url } = await uploadImage(file, "gallery");
+        const { data, error } = await supabase
+          .from("gallery_images").insert({ url, path }).select().single();
+        if (error) throw error;
+        added.push({ id: data.id, src: data.url, path: data.path });
+      }
+      setGallery((g) => [...g, ...added]);
+      setStatus(null);
+    } catch (e) {
+      setStatus({ type: "error", text: e.message });
+    }
+  };
+
+  const replaceGalleryImage = async (id, file) => {
+    try {
+      const old = gallery.find((i) => i.id === id);
+      const { path, url } = await uploadImage(file, "gallery");
+      const { error } = await supabase.from("gallery_images").update({ url, path }).eq("id", id);
+      if (error) throw error;
+      if (old?.path) await supabase.storage.from(BUCKET).remove([old.path]);
+      setGallery((g) => g.map((i) => (i.id === id ? { ...i, src: url, path } : i)));
+    } catch (e) {
+      setStatus({ type: "error", text: e.message });
+    }
+  };
+
+  const removeGalleryImage = async (id) => {
+    const old = gallery.find((i) => i.id === id);
+    const { error } = await supabase.from("gallery_images").delete().eq("id", id);
+    if (error) return setStatus({ type: "error", text: error.message });
+    if (old?.path) await supabase.storage.from(BUCKET).remove([old.path]);
+    setGallery((g) => g.filter((i) => i.id !== id));
+  };
 
   const handleUploadChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -165,16 +224,40 @@ function BusinessTab() {
     e.target.value = "";
   };
 
-  const handleBannerChange = (e) => {
+  /* ---- Logo & banner: uploaded now, applied when you click Save ---- */
+  const handleSingleUpload = (folder, key) => async (e) => {
     const file = e.target.files?.[0];
-    if (file) setBanner({ id: Date.now(), src: URL.createObjectURL(file) });
     e.target.value = "";
+    if (!file) return;
+    try {
+      setStatus({ type: "info", text: "Uploading..." });
+      const { url } = await uploadImage(file, folder);
+      setForm((f) => ({ ...f, [key]: url }));
+      setStatus({ type: "info", text: "Image uploaded. Click Save changes to publish it." });
+    } catch (err) {
+      setStatus({ type: "error", text: err.message });
+    }
   };
 
-  const removeGalleryImage = (id) =>
-    setGallery((g) => g.filter((img) => img.id !== id));
+  /* ---- Save text fields + logo/banner ---- */
+  const saveSettings = async () => {
+    const { error } = await supabase.from("site_settings").upsert({
+      id: 1,
+      business_name: form.name,
+      facebook: form.facebook,
+      address: form.address,
+      phone_primary: form.phonePrimary,
+      phone_secondary: form.phoneSecondary,
+      logo_url: form.logoUrl,
+      banner_url: form.bannerUrl,
+      updated_at: new Date().toISOString(),
+    });
+    setStatus(error ? { type: "error", text: error.message } : { type: "ok", text: "Saved! Customers will see the changes." });
+  };
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  if (!form) return <p className="text-xs text-[#5f5e5e]">Loading settings...</p>;
 
   return (
     <div className="space-y-6">
@@ -183,27 +266,11 @@ function BusinessTab() {
         <SectionTitle icon={Building2} title="Business information" />
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <TextInput label="Business name" value={form.name} onChange={set("name")} />
-          <TextInput
-            label="Facebook page / contact link"
-            value={form.facebook}
-            onChange={set("facebook")}
-          />
-          <TextInput
-            label="Business address"
-            value={form.address}
-            onChange={set("address")}
-          />
+          <TextInput label="Facebook page / contact link" value={form.facebook} onChange={set("facebook")} />
+          <TextInput label="Business address" value={form.address} onChange={set("address")} />
           <div className="grid grid-cols-2 gap-3">
-            <TextInput
-              label="Contact number (primary)"
-              value={form.phonePrimary}
-              onChange={set("phonePrimary")}
-            />
-            <TextInput
-              label="Contact number (secondary)"
-              value={form.phoneSecondary}
-              onChange={set("phoneSecondary")}
-            />
+            <TextInput label="Contact number (primary)" value={form.phonePrimary} onChange={set("phonePrimary")} />
+            <TextInput label="Contact number (secondary)" value={form.phoneSecondary} onChange={set("phoneSecondary")} />
           </div>
         </div>
       </section>
@@ -215,18 +282,23 @@ function BusinessTab() {
         {/* Logo */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-[#121212] bg-[#121212] text-[10px] font-bold text-[#ccff00]">
-              LOGO
+            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-[#121212] bg-[#121212]">
+              <img
+                src={form.logoUrl || "/saranay-logo.png"}
+                alt="Current logo"
+                className="h-full w-full object-contain"
+              />
             </div>
             <div>
               <p className="text-xs font-bold text-[#121212]">Current logo</p>
               <p className="text-[11px] text-[#5f5e5e]">
-                Uploaded logo.png, 512×512
+                {form.logoUrl ? "Custom logo" : "Default logo"}
               </p>
             </div>
           </div>
           <button
             type="button"
+            onClick={() => logoInputRef.current?.click()}
             className="rounded-xl border border-[#121212] bg-[#ffffff] px-3 py-1.5 text-xs font-semibold text-[#121212] hover:bg-neutral-100 transition-colors"
           >
             Change logo
@@ -262,7 +334,6 @@ function BusinessTab() {
               const isLastPreview = index === PREVIEW_COUNT - 1;
               const hiddenCount = gallery.length - PREVIEW_COUNT;
               const showMore = isLastPreview && hiddenCount > 0;
-
               return (
                 <ImageTile
                   key={img.id}
@@ -283,12 +354,14 @@ function BusinessTab() {
 
         {/* Website banner */}
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold text-[#5f5e5e]">
-            Website banner — main banner
-          </p>
+          <p className="text-[11px] font-semibold text-[#5f5e5e]">Website banner — main banner</p>
           <div className="w-full max-w-[200px]">
-            {banner ? (
-              <ImageTile src={banner.src} onRemove={() => setBanner(null)} label="Main banner" />
+            {form.bannerUrl ? (
+              <ImageTile
+                src={form.bannerUrl}
+                onRemove={() => setForm((f) => ({ ...f, bannerUrl: null }))}
+                label="Main banner"
+              />
             ) : (
               <button
                 type="button"
@@ -302,28 +375,22 @@ function BusinessTab() {
         </div>
       </section>
 
+      {status && (
+        <p className={`text-xs font-semibold ${status.type === "error" ? "text-red-600" : "text-[#121212]"}`}>
+          {status.text}
+        </p>
+      )}
+
       <ActionBar
         saveLabel="Save changes"
         section="business settings"
-        onReset={() => setForm(INITIAL_BUSINESS)}
-        onSave={() => console.log("Save business settings", form)}
+        onReset={() => setForm(rowToForm(DEFAULT_SETTINGS))}
+        onSave={saveSettings}
       />
 
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        className="hidden"
-        onChange={handleUploadChange}
-      />
-      <input
-        ref={bannerInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleBannerChange}
-      />
+      <input ref={uploadInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUploadChange} />
+      <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleSingleUpload("branding", "bannerUrl")} />
+      <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleSingleUpload("branding", "logoUrl")} />
 
       <SettingsPageGalleryModal
         isOpen={isGalleryOpen}

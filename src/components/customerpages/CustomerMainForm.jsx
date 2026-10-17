@@ -7,7 +7,7 @@ import FAQs from './FAQs';
 import BookingHistory from './BookingHistory';
 import ProfileMenu from './ProfileMenu';
 import Settings from './Settings';
-import GuestBookingHistory from './GuestBookingHistory'; // TEMP: preview only
+import GuestBookingHistory from './GuestBookingHistory';
 import GuestActions from './GuestActions';
 import Login_customer from './Login_customer';
 import ForgotPassword from './ForgotPassword'; 
@@ -35,8 +35,11 @@ const PAGES = {
   FAQS: FAQs,
   HISTORY: BookingHistory,
   SETTINGS: Settings,
-  GUEST: () => <GuestBookingHistory backgroundImage="/bgpic.jpg" />, // TEMP: preview onl
+  GUEST: () => <GuestBookingHistory backgroundImage="/bgpic.jpg" />, // guests: "Find your booking"
 };
+
+// Pages only logged-in customers can open
+const ACCOUNT_ONLY_TABS = ['HISTORY', 'SETTINGS'];
 
 const SECTION_TABS = { RATES: 'rates-section' };
 
@@ -55,12 +58,6 @@ const LEGAL_LINKS = [
   { label: 'Terms of Service', href: '#terms-of-service' },
   { label: 'Cancellation and Reschedule Policy', href: '#cancellation-policy' },
 ];
-
-const handleLogout = () => {
-  // TODO: clear the session/token, then send the user to the login page
-  console.log('logout');
-};
-
 
 // Facebook icon: lime rounded square with an "f" (matches the mockup)
 function FacebookSquareIcon({ className = '' }) {
@@ -100,7 +97,27 @@ export default function CustomerMainForm() {
     avatarUrl: profile?.avatar_url || '',
   };
 
-  const ActivePage = PAGES[activeTab];
+  // Real account details only (no sample data) — pre-fills the PaymentPage contact form
+  const customer = isGuest
+    ? null
+    : {
+        name: profile?.full_name || '',
+        email: user?.email || '',
+        phone: profile?.contact_number || '',
+      };
+
+  const ActivePage = PAGES[activeTab] || Home;
+
+  // Guests can't open account pages; logged-in customers use History instead of "Find your booking"
+  useEffect(() => {
+    if (isGuest && ACCOUNT_ONLY_TABS.includes(activeTab)) setActiveTab('HOME');
+    if (!isGuest && activeTab === 'GUEST') setActiveTab('HISTORY');
+  }, [isGuest, activeTab]);
+
+  const handleLogout = async () => {
+    await signOut?.();
+    setActiveTab('HOME');
+  };
 
   const goToTab = (id) => {
     const sectionId = SECTION_TABS[id];
@@ -193,7 +210,7 @@ export default function CustomerMainForm() {
                   {/* Settings opens from the profile section inside this menu */}
                   <ProfileMenu
                     user={currentUser}
-                    onLogout={signOut}
+                    onLogout={handleLogout}
                     onOpenProfile={() => goToTab('SETTINGS')}
                   />
                 </>
@@ -271,7 +288,7 @@ export default function CustomerMainForm() {
       {/* Content panel: the active tab's page is rendered here */}
       <main className="flex-1 w-full max-w-[1520px] mx-auto px-5 sm:px-10 py-5 sm:py-6 flex flex-col">
         <div id={`tab-${activeTab.toLowerCase()}`} className="w-full flex-1">
-          <ActivePage setFocusMode={setFocusMode} onNavigateToTab={goToTab} />
+          <ActivePage setFocusMode={setFocusMode} onNavigateToTab={goToTab} customer={customer} />
         </div>
       </main>
 
@@ -406,15 +423,6 @@ export default function CustomerMainForm() {
           onSignIn={() => setAuthModal('login')}      // "Already have an account? Sign in"
         />
       )}
-
-      {/* TEMP: preview button, delete me */}
-      <button
-        type="button"
-        onClick={() => goToTab('GUEST')}
-        className="fixed bottom-5 right-5 z-[100] bg-[#ccff00] text-black font-bold text-sm px-4 py-2 rounded-full shadow-lg cursor-pointer hover:brightness-95"
-      >
-        Preview Guest Booking
-      </button>
     </div>
   );
 }

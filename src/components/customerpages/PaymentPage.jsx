@@ -1,22 +1,24 @@
 import React, { useState } from 'react';
 import { Lock, ChevronUp, ChevronDown, ChevronLeft, QrCode } from 'lucide-react';
-
-/**
- * PaymentPage
- * Rendered inside CustomerMainForm's content panel, which already provides the
- * page background, font loading and horizontal/vertical padding. This component
- * therefore sets no page background, min-h-screen or outer padding.
- *
- * `showCheckoutBar` renders the dark "SARANAY PICKLEBALL / Secure checkout" strip
- * from the design. Pass showCheckoutBar={false} if you don't want it on top of
- * the main site header.
- */
+// ⚠ Adjust if this file is not 3 folders below the project root
+import {
+  createOnlineBooking,
+  startPayMongoCheckout,
+  SIMULATED_PAYMENT,
+  simulatePayment,
+  toReceiptProps,
+} from '../../../lib/bookingService';
 
 const OLIVE = '#85761C';
 const OLIVE_DARK = '#6B5E12';
 const FIELD_BG = '#FBFAF5';
 const FIELD_BORDER = '#E9E5D3';
 const CARD_BORDER = '#E7E3D0';
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 function LogoImg({ className }) {
   return (
@@ -53,7 +55,7 @@ function Radio({ checked }) {
   );
 }
 
-function Field({ label, type = 'text', value, onChange, autoComplete }) {
+function Field({ label, type = 'text', value, onChange, autoComplete, placeholder, disabled }) {
   return (
     <div>
       <label className="block text-sm font-medium text-[#121212] mb-1.5">{label}</label>
@@ -61,16 +63,18 @@ function Field({ label, type = 'text', value, onChange, autoComplete }) {
         type={type}
         required
         value={value}
+        disabled={disabled}
+        placeholder={placeholder}
         autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value)}
         style={{ backgroundColor: FIELD_BG, borderColor: FIELD_BORDER }}
-        className="w-full border rounded-[14px] px-4 py-3 text-sm sm:text-[15px] text-neutral-600 focus:text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#ccff00] focus:bg-white transition-colors"
+        className="w-full border rounded-[14px] px-4 py-3 text-sm sm:text-[15px] text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-[#ccff00] focus:bg-white transition-colors disabled:opacity-60"
       />
     </div>
   );
 }
 
-// "08:00 AM" + 1 hr  ->  "8:00–9:00 AM"
+// "8:00 AM" + 2 hrs -> "8:00–10:00 AM"
 function formatTimeRange(startStr, duration) {
   const m = String(startStr).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   if (!m) return `${startStr} (${duration} ${duration === 1 ? 'hr' : 'hrs'})`;
@@ -87,29 +91,45 @@ function formatTimeRange(startStr, duration) {
   return a.mer === b.mer ? `${a.text}–${b.text} ${b.mer}` : `${a.text} ${a.mer}–${b.text} ${b.mer}`;
 }
 
+/**
+ * PaymentPage
+ * When "Pay" is clicked:
+ *   1. creates the booking in Supabase (status: pending payment, slot held)
+ *   2. sends the customer to PayMongo's checkout page (GCash / QR Ph)
+ *   3. PayMongo sends them back to the site, and Home.jsx confirms the payment
+ *
+ * Props:
+ *  - customer (optional): { name, email, phone } from the logged-in account to pre-fill the form
+ *  - onPaymentSuccess(receiptProps): used by the simulated payment mode (DEV)
+ */
 export default function PaymentPage({
   bookingData,
   calculatedTotal,
   onBack,
   onPaymentSuccess,
-  showCheckoutBar = true,
+  customer = null,
 }) {
+  // DEV: simulated PayMongo test checkout
+  const [showTestCheckout, setShowTestCheckout] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState('gcash');
-  const [fullName, setFullName] = useState('Crystal Florano');
-  const [email, setEmail] = useState('crystalflorano@gmail.com');
-  const [contactNumber, setContactNumber] = useState('09938795878');
+  const [fullName, setFullName] = useState(customer?.name || '');
+  const [email, setEmail] = useState(customer?.email || '');
+  const [contactNumber, setContactNumber] = useState(customer?.phone || '');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState('');
+  const [referenceNumber, setReferenceNumber] = useState(null);
+  const [pendingBookingId, setPendingBookingId] = useState(null);
 
-  const referenceNumber = bookingData.referenceNumber || 'CR-1009';
-  const day = bookingData.day || 19;
-  const month = (bookingData.month || 'August').slice(0, 3);
-  const year = bookingData.year || 2026;
-  const startTime = bookingData.startTime || '8:00 AM';
+  const day = bookingData.day;
+  const monthName = bookingData.month;
+  const year = bookingData.year;
+  const startTime = bookingData.startTime;
   const duration = bookingData.duration || 1;
-  const players = bookingData.players || 4;
-  const paddles = bookingData.paddles ?? 2;
-  const balls = bookingData.balls ?? 1;
+  const players = bookingData.players || 1;
+  const paddles = bookingData.paddles ?? 0;
+  const balls = bookingData.balls ?? 0;
 
   const methodLabel = paymentMethod === 'gcash' ? 'GCash' : 'QR Ph';
   const [wholeStr, cents] = Number(calculatedTotal).toFixed(2).split('.');
@@ -119,27 +139,63 @@ export default function PaymentPage({
     maximumFractionDigits: 2,
   })}`;
 
-  const handlePay = (e) => {
+  const handlePay = async (e) => {
     e.preventDefault();
+    setError('');
     setIsProcessing(true);
-    setTimeout(() => {
+    try {
+      // 1. Create the booking once (if the customer retries, reuse it)
+      let bookingId = pendingBookingId;
+      if (!bookingId) {
+        const created = await createOnlineBooking({
+          date: { year, month: MONTHS.indexOf(monthName), day },
+          startTime,
+          duration,
+          players,
+          paddles,
+          balls,
+          name: fullName,
+          email,
+          phone: contactNumber,
+        });
+        bookingId = created.booking_id;
+        setPendingBookingId(created.booking_id);
+        setReferenceNumber(created.ref);
+      }
+
+      // 2a. DEV: show the simulated test checkout instead of PayMongo
+      if (SIMULATED_PAYMENT) {
+        setShowTestCheckout(true);
+        setIsProcessing(false);
+        return;
+      }
+
+      // 2b. Go to PayMongo checkout
+      const checkoutUrl = await startPayMongoCheckout(bookingId, paymentMethod);
+      window.location.href = checkoutUrl;
+    } catch (err) {
+      setError(err.message);
       setIsProcessing(false);
-      onPaymentSuccess({
-        fullName,
-        email,
-        contactNumber,
-        paymentMethod: methodLabel,
-        referenceNumber,
-        paidAt: new Date().toLocaleString('en-US', {
-          month: 'short',
-          day: 'numeric',
-          year: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        }),
-      });
-    }, 800);
+    }
+  };
+
+  const handleAuthorizeTest = async () => {
+    setAuthorizing(true);
+    setError('');
+    try {
+      const res = await simulatePayment(pendingBookingId, paymentMethod);
+      onPaymentSuccess?.(toReceiptProps(res.booking, res.payment));
+    } catch (err) {
+      setShowTestCheckout(false);
+      setError(err.message);
+    } finally {
+      setAuthorizing(false);
+    }
+  };
+
+  const handleFailTest = () => {
+    setShowTestCheckout(false);
+    setError('Test payment failed. Your slot is still held. You can try paying again.');
   };
 
   const methodClass = (active) =>
@@ -148,52 +204,49 @@ export default function PaymentPage({
     }`;
 
   return (
-      <div
-        style={{ fontFamily: "'Be Vietnam Pro', sans-serif" }}
-        className="w-full min-w-0 flex flex-col text-neutral-900"
-      >
-        {/* Receipt header: full-bleed, edge to edge */}
-        <nav className="w-screen ml-[calc(50%-50vw)] -mt-5 sm:-mt-6 bg-[#121212] text-white shrink-0 shadow-sm">
-          <div className="max-w-[1520px] mx-auto px-5 sm:px-10 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3 sm:gap-4">
-              <img
-                src="/saranay-logo.png"
-                alt="Saranay Pickleball"
-                className="h-9 sm:h-10 w-auto object-contain"
-                onError={(e) => {
-                  const t = e.currentTarget;
-                  if (t.src.endsWith('/saranay-logo.png')) t.src = '/SARANAY LOGO.png';
-                }}
-              />
-              <span className="font-extrabold tracking-wide text-sm sm:text-lg uppercase text-white">
-                SARANAY PICKLEBALL
-              </span>
-            </div>
-  
-            <div className="flex items-center gap-1.5 text-xs sm:text-sm text-neutral-400 font-medium">
-              <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-neutral-400" />
-              <span>Secure checkout</span>
-            </div>
+    <div
+      style={{ fontFamily: "'Be Vietnam Pro', sans-serif" }}
+      className="w-full min-w-0 flex flex-col text-neutral-900"
+    >
+      {/* Checkout header: full-bleed */}
+      <nav className="w-screen ml-[calc(50%-50vw)] -mt-5 sm:-mt-6 bg-[#121212] text-white shrink-0 shadow-sm mb-6">
+        <div className="max-w-[1520px] mx-auto px-5 sm:px-10 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <img
+              src="/saranay-logo.png"
+              alt="Saranay Pickleball"
+              className="h-9 sm:h-10 w-auto object-contain"
+              onError={(e) => {
+                const t = e.currentTarget;
+                if (t.src.endsWith('/saranay-logo.png')) t.src = '/SARANAY LOGO.png';
+              }}
+            />
+            <span className="font-extrabold tracking-wide text-sm sm:text-lg uppercase text-white">
+              SARANAY PICKLEBALL
+            </span>
           </div>
-        </nav>
+
+          <div className="flex items-center gap-1.5 text-xs sm:text-sm text-neutral-400 font-medium">
+            <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-neutral-400" />
+            <span>Secure checkout</span>
+          </div>
+        </div>
+      </nav>
 
       <div className="w-full max-w-[1000px] mx-auto">
-        {/* Back link */}
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 text-sm sm:text-base font-medium text-neutral-600 hover:text-black mb-5 cursor-pointer w-fit transition-colors"
+          disabled={isProcessing}
+          className="inline-flex items-center gap-1.5 text-sm sm:text-base font-medium text-neutral-600 hover:text-black mb-5 cursor-pointer w-fit transition-colors disabled:opacity-50"
         >
-          <ChevronLeft className="w-4 h-15" strokeWidth={2.2} />
+          <ChevronLeft className="w-4 h-4" strokeWidth={2.2} />
           Back to booking
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.6fr] gap-5 sm:gap-6 items-start">
           {/* LEFT: summary */}
-          <div
-            style={{ borderColor: CARD_BORDER }}
-            className="bg-white border rounded-[28px] px-5 sm:px-6 py-6 sm:py-7"
-          >
+          <div style={{ borderColor: CARD_BORDER }} className="bg-white border rounded-[28px] px-5 sm:px-6 py-6 sm:py-7">
             <div className="flex items-center gap-5 pb-6">
               <LogoImg className="h-12 w-auto max-w-[96px] object-contain shrink-0" />
               <div>
@@ -219,7 +272,7 @@ export default function PaymentPage({
                   style={{ color: OLIVE_DARK }}
                   className="bg-[#EAF0C4] font-bold text-xs sm:text-[13px] px-3 py-1 rounded-full tracking-wider"
                 >
-                  {referenceNumber}
+                  {referenceNumber || 'Assigned when you pay'}
                 </span>
               </div>
             </div>
@@ -245,13 +298,10 @@ export default function PaymentPage({
                   className="mt-3 bg-[#FCF4DF] border rounded-2xl px-4 sm:px-5 py-4 text-sm sm:text-[15px] space-y-2.5"
                 >
                   {[
-                    ['Date', `${month} ${day}, ${year}`],
+                    ['Date', `${String(monthName).slice(0, 3)} ${day}, ${year}`],
                     ['Time', formatTimeRange(startTime, duration)],
                     ['Players', `${players} ${players === 1 ? 'player' : 'players'}`],
-                    [
-                      'Equipment',
-                      `${paddles} ${paddles === 1 ? 'paddle' : 'paddles'}, ${balls} ${balls === 1 ? 'ball' : 'balls'}`,
-                    ],
+                    ['Equipment', `${paddles} ${paddles === 1 ? 'paddle' : 'paddles'}, ${balls} ${balls === 1 ? 'ball' : 'balls'}`],
                     ['Fees', 'Free'],
                   ].map(([k, v]) => (
                     <div key={k} className="flex justify-between gap-3">
@@ -269,25 +319,19 @@ export default function PaymentPage({
           </div>
 
           {/* RIGHT: contact + payment */}
-          <form
-            onSubmit={handlePay}
-            style={{ borderColor: CARD_BORDER }}
-            className="bg-white border rounded-[28px] px-5 sm:px-6 py-6 sm:py-7"
-          >
-            <h3 className="text-sm sm:text-[15px] font-bold uppercase tracking-[0.14em] text-[#121212]">
-              Contact details
-            </h3>
-            <p className="text-sm text-neutral-500 mt-0.5 mb-5">We'll send your booking confirmation here.</p>
+          <form onSubmit={handlePay} style={{ borderColor: CARD_BORDER }} className="bg-white border rounded-[28px] px-5 sm:px-6 py-6 sm:py-7">
+            <h3 className="text-sm sm:text-[15px] font-bold uppercase tracking-[0.14em] text-[#121212]">Contact details</h3>
+            <p className="text-sm text-neutral-500 mt-0.5 mb-5">
+              We'll send your booking confirmation here. Keep your reference number to find your booking later.
+            </p>
 
             <div className="space-y-4">
-              <Field label="Full name" value={fullName} onChange={setFullName} autoComplete="name" />
-              <Field label="Email address" type="email" value={email} onChange={setEmail} autoComplete="email" />
-              <Field label="Contact number" type="tel" value={contactNumber} onChange={setContactNumber} autoComplete="tel" />
+              <Field label="Full name" value={fullName} onChange={setFullName} autoComplete="name" placeholder="e.g. Juan Dela Cruz" disabled={isProcessing || Boolean(pendingBookingId)} />
+              <Field label="Email address" type="email" value={email} onChange={setEmail} autoComplete="email" placeholder="e.g. juan@email.com" disabled={isProcessing || Boolean(pendingBookingId)} />
+              <Field label="Contact number" type="tel" value={contactNumber} onChange={setContactNumber} autoComplete="tel" placeholder="e.g. 09171234567" disabled={isProcessing || Boolean(pendingBookingId)} />
             </div>
 
-            <h3 className="mt-8 text-sm sm:text-[15px] font-bold uppercase tracking-[0.14em] text-[#121212]">
-              Payment method
-            </h3>
+            <h3 className="mt-8 text-sm sm:text-[15px] font-bold uppercase tracking-[0.14em] text-[#121212]">Payment method</h3>
             <p className="text-sm text-neutral-500 mt-0.5 mb-4">Choose how you'd like to pay.</p>
 
             <div role="radiogroup" aria-label="Payment method" className="space-y-3">
@@ -296,6 +340,7 @@ export default function PaymentPage({
                 role="radio"
                 aria-checked={paymentMethod === 'gcash'}
                 onClick={() => setPaymentMethod('gcash')}
+                disabled={isProcessing}
                 style={paymentMethod === 'gcash' ? undefined : { backgroundColor: FIELD_BG, borderColor: FIELD_BORDER }}
                 className={methodClass(paymentMethod === 'gcash')}
               >
@@ -314,6 +359,7 @@ export default function PaymentPage({
                 role="radio"
                 aria-checked={paymentMethod === 'qrph'}
                 onClick={() => setPaymentMethod('qrph')}
+                disabled={isProcessing}
                 style={paymentMethod === 'qrph' ? undefined : { backgroundColor: FIELD_BG, borderColor: FIELD_BORDER }}
                 className={methodClass(paymentMethod === 'qrph')}
               >
@@ -330,17 +376,23 @@ export default function PaymentPage({
               </button>
             </div>
 
+            {error && (
+              <p className="mt-5 text-sm font-semibold text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                {error}
+              </p>
+            )}
+
             <button
               type="submit"
               disabled={isProcessing}
-              className="mt-6 w-full bg-[#ccff00] hover:bg-[#b8e600] disabled:opacity-60 text-black font-bold py-4 rounded-full text-base sm:text-lg cursor-pointer transition-colors"
+              className="mt-6 w-full bg-[#ccff00] hover:bg-[#b8e600] disabled:opacity-60 disabled:cursor-wait text-black font-bold py-4 rounded-full text-base sm:text-lg cursor-pointer transition-colors"
             >
-              {isProcessing ? 'Processing payment...' : `Pay ${totalText} via ${methodLabel}`}
+              {isProcessing ? 'Opening PayMongo...' : `Pay ${totalText} via ${methodLabel}`}
             </button>
 
             <div className="text-center text-xs sm:text-sm text-neutral-500 mt-5 space-y-2">
               <p>
-                By continuing, you agree to PayMongo's{' '}
+                Your time slot is held for 20 minutes while you complete payment. By continuing, you agree to PayMongo's{' '}
                 <span className="underline text-[#121212] cursor-pointer">Privacy Policy</span>.
               </p>
               <p className="text-neutral-400">Powered by PayMongo</p>
@@ -348,6 +400,56 @@ export default function PaymentPage({
           </form>
         </div>
       </div>
+
+      {/* DEV: simulated PayMongo test checkout */}
+      {showTestCheckout && (
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-[420px] bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="bg-[#121212] text-white px-6 py-4 flex items-center justify-between">
+              <span className="font-bold">PayMongo Test Checkout</span>
+              <span className="text-[11px] font-bold bg-[#ccff00] text-black px-2 py-0.5 rounded">SIMULATED</span>
+            </div>
+
+            <div className="px-6 py-6 text-center">
+              <div className="mx-auto w-fit">
+                {paymentMethod === 'gcash' ? (
+                  <GCashIcon />
+                ) : (
+                  <span className="w-9 h-9 rounded-lg bg-white border border-[#E3DFCB] text-[#121212] flex items-center justify-center">
+                    <QrCode className="w-5 h-5" strokeWidth={2} />
+                  </span>
+                )}
+              </div>
+              <p className="mt-3 text-sm text-neutral-500">Paying Saranay Pickleball via {methodLabel}</p>
+              <p className="mt-1 text-3xl font-extrabold text-[#121212]">{totalText}</p>
+              <p className="mt-1 text-xs text-neutral-500">Reference: {referenceNumber}</p>
+
+              <p className="mt-5 text-xs text-neutral-500 bg-neutral-100 rounded-xl px-3 py-2">
+                This is a test payment. No real money will be charged.
+              </p>
+
+              <div className="mt-5 space-y-2.5">
+                <button
+                  type="button"
+                  onClick={handleAuthorizeTest}
+                  disabled={authorizing}
+                  className="w-full bg-[#ccff00] hover:bg-[#b8e600] disabled:opacity-60 text-black font-bold py-3 rounded-full cursor-pointer transition-colors"
+                >
+                  {authorizing ? 'Processing...' : 'Authorize Test Payment'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFailTest}
+                  disabled={authorizing}
+                  className="w-full border border-neutral-300 hover:bg-neutral-50 text-neutral-700 font-semibold py-3 rounded-full cursor-pointer transition-colors"
+                >
+                  Fail Test Payment
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

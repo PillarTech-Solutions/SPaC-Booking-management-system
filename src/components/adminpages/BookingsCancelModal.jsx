@@ -10,6 +10,20 @@ const CANCELLATION_REASONS = [
   'Other'
 ];
 
+// Reasons a customer picks on their own My Bookings page
+const CUSTOMER_CANCELLATION_REASONS = [
+  'Change of plans',
+  'Schedule conflict',
+  'Weather condition / Rain',
+  'Emergency',
+  'Other'
+];
+
+/**
+ * BookingsCancelModal
+ *  - onConfirmCancel({ booking, reason, notes }) must return a Promise.
+ *    If it throws, the error is shown here and the modal stays open.
+ */
 export default function BookingsCancelModal({
   isOpen = false,
   onClose,
@@ -17,19 +31,22 @@ export default function BookingsCancelModal({
   fromView = false,
   booking = null,
   onConfirmCancel,
+  // variant="customer": customer reasons, no "notify customer" checkbox, non-refundable notice
+  variant = 'admin',
 }) {
-  // Form States
+  const isCustomer = variant === 'customer';
+  const reasonOptions = isCustomer ? CUSTOMER_CANCELLATION_REASONS : CANCELLATION_REASONS;
   const [reason, setReason] = useState('');
   const [isReasonOpen, setIsReasonOpen] = useState(false);
   const [notes, setNotes] = useState('');
   const [notifyCustomer, setNotifyCustomer] = useState(true);
   const [showCancellationPolicy, setShowCancellationPolicy] = useState(false);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  // Ref for click outside
   const reasonRef = useRef(null);
 
-  // Sync state on booking load
+  // Reset when a booking is opened
   useEffect(() => {
     if (booking && isOpen) {
       setReason('');
@@ -38,69 +55,55 @@ export default function BookingsCancelModal({
       setNotifyCustomer(true);
       setShowCancellationPolicy(false);
       setError('');
+      setSaving(false);
     }
   }, [booking, isOpen]);
 
   // Click outside listener
   useEffect(() => {
     function handleClickOutside(event) {
-      if (reasonRef.current && !reasonRef.current.contains(event.target)) {
-        setIsReasonOpen(false);
-      }
+      if (reasonRef.current && !reasonRef.current.contains(event.target)) setIsReasonOpen(false);
     }
-
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   // Escape key handler
   useEffect(() => {
     if (!isOpen) return;
-
     function handleKeyDown(event) {
-      if (event.key === 'Escape') {
-        onClose?.();
-      }
+      if (event.key === 'Escape' && !saving) onClose?.();
     }
-
     document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, saving]);
 
   if (!isOpen || !booking) return null;
 
-  // Safe defaults matching user prototype
-  const customerName = booking.customer || booking.customerName || 'Joseph Armia';
-  const bookingRef = booking.ref || 'CR-1010';
+  const formattedDateTime = `${booking.date} • ${booking.time}`;
 
-  // Format Date & Time display: Aug 30, 2026 • 8:00 AM · 10:00 AM
-  const formattedDateTime = (() => {
-    const d = booking.date || 'Aug 30, 2026';
-    let t = booking.time || '8:00 AM · 10:00 AM';
-    t = t.replace('–', '·').replace('-', '·');
-    return `${d} • ${t}`;
-  })();
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e?.preventDefault();
     if (!reason) {
       setError('Please select a cancellation reason');
       return;
     }
 
-    onConfirmCancel?.({
-      ...booking,
-      status: 'Cancelled',
-      lastUpdated: 'Today',
-      cancellationReason: reason,
-      cancellationNotes: notes || undefined,
-      notifyCustomer,
-    });
-    onClose?.();
+    setSaving(true);
+    setError('');
+    try {
+      await onConfirmCancel?.({
+        booking,
+        reason,
+        notes: notes || null,
+        notifyCustomer,
+      });
+      onClose?.();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -108,15 +111,12 @@ export default function BookingsCancelModal({
       style={{ fontFamily: "'Be Vietnam Pro', sans-serif" }}
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/40 backdrop-blur-[2px] select-none animate-in fade-in duration-150"
       onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose?.();
-        }
+        if (e.target === e.currentTarget && !saving) onClose?.();
       }}
     >
-      {/* Modal Container */}
       <div className="w-full max-w-[460px] sm:max-w-[480px] bg-[#ffffff] border border-[#dedbc4] rounded-2xl shadow-2xl p-4 sm:p-5 flex flex-col relative transition-all duration-150">
-        
-        {/* ================= HEADER ================= */}
+
+        {/* HEADER */}
         <div className="flex items-center justify-between">
           <h2 className="text-base sm:text-[17px] font-bold text-[#121212] tracking-tight">
             Cancel Booking
@@ -124,6 +124,7 @@ export default function BookingsCancelModal({
           <button
             type="button"
             onClick={onClose}
+            disabled={saving}
             className="p-1 -mr-1 rounded-full text-[#6b7280] hover:text-[#121212] transition-colors cursor-pointer"
             title="Close"
           >
@@ -131,45 +132,35 @@ export default function BookingsCancelModal({
           </button>
         </div>
 
-        {/* 1st HORIZONTAL SEPARATOR */}
         <div className="mx-2.5 h-px bg-[#dedbc4] mt-2.5 mb-3 sm:mt-3 sm:mb-3.5" />
 
-        {/* ================= UPPER SECTION ================= */}
+        {/* UPPER SECTION */}
         <div>
           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-[#f5f3e5] text-[#121212] border border-[#dedbc4]/60 select-none whitespace-nowrap mb-2.5">
-            Ref #: {bookingRef}
+            Ref #: {booking.ref}
           </span>
         </div>
 
-        {/* Two-Column Details: CUSTOMER and DATE & TIME */}
         <div className="grid grid-cols-2 gap-x-4 mb-1">
           <div>
             <span className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#525252] mb-0.5">
               CUSTOMER
             </span>
-            <p className="text-xs sm:text-[13px] font-bold text-[#121212] truncate">
-              {customerName}
-            </p>
+            <p className="text-xs sm:text-[13px] font-bold text-[#121212] truncate">{booking.customer}</p>
           </div>
-
           <div className="text-right">
             <span className="block text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#525252] mb-0.5">
               DATE & TIME
             </span>
-            <p className="text-xs sm:text-[13px] font-bold text-[#121212] truncate">
-              {formattedDateTime}
-            </p>
+            <p className="text-xs sm:text-[13px] font-bold text-[#121212] truncate">{formattedDateTime}</p>
           </div>
         </div>
 
-        {/* ================= INNER BEIGE CONTAINER ================= */}
         <form onSubmit={handleSubmit} className="flex flex-col">
           <div className="bg-[#fcfbf7] border border-[#dedbc4] rounded-2xl p-3 sm:p-3.5 my-2.5 sm:my-3 space-y-2.5">
             {/* Reason */}
             <div className="relative" ref={reasonRef}>
-              <label className="block text-xs font-bold text-[#404040] mb-1">
-                Reason
-              </label>
+              <label className="block text-xs font-bold text-[#404040] mb-1">Reason</label>
               <button
                 type="button"
                 onClick={() => setIsReasonOpen(!isReasonOpen)}
@@ -181,10 +172,9 @@ export default function BookingsCancelModal({
                 <ChevronDown className="w-4 h-4 text-[#6b7280] shrink-0 ml-1.5" />
               </button>
 
-              {/* Reason dropdown menu */}
               {isReasonOpen && (
                 <div className="absolute top-full mt-1 left-0 right-0 z-60 bg-[#ffffff] border border-[#dedbc4] rounded-xl p-1 shadow-xl select-none animate-in fade-in zoom-in-95 duration-100">
-                  {CANCELLATION_REASONS.map((opt) => (
+                  {reasonOptions.map((opt) => (
                     <button
                       key={opt}
                       type="button"
@@ -194,9 +184,7 @@ export default function BookingsCancelModal({
                         setError('');
                       }}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors cursor-pointer ${
-                        reason === opt
-                          ? 'bg-[#121212] text-[#ccff00] font-bold'
-                          : 'text-[#121212] hover:bg-neutral-100 font-medium'
+                        reason === opt ? 'bg-[#121212] text-[#ccff00] font-bold' : 'text-[#121212] hover:bg-neutral-100 font-medium'
                       }`}
                     >
                       <span className="truncate">{opt}</span>
@@ -209,9 +197,7 @@ export default function BookingsCancelModal({
 
             {/* Notes */}
             <div>
-              <label className="block text-xs font-bold text-[#404040] mb-1">
-                Notes
-              </label>
+              <label className="block text-xs font-bold text-[#404040] mb-1">Notes</label>
               <textarea
                 rows={3}
                 value={notes}
@@ -222,7 +208,7 @@ export default function BookingsCancelModal({
             </div>
           </div>
 
-          {/* Cancellation Policy and Notify Checkbox Row */}
+          {/* Policy and Notify Row */}
           <div className="flex items-center justify-between px-0.5 my-1 text-xs">
             <button
               type="button"
@@ -232,51 +218,53 @@ export default function BookingsCancelModal({
               View Cancellation Policy
             </button>
 
-            <label className="flex items-center gap-1.5 text-xs text-[#404040] font-normal cursor-pointer select-none">
-              <span>Notify customer via SMS/Email</span>
-              <input
-                type="checkbox"
-                checked={notifyCustomer}
-                onChange={(e) => setNotifyCustomer(e.target.checked)}
-                className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600 focus:ring-0 cursor-pointer"
-              />
-            </label>
+            {!isCustomer && (
+              <label className="flex items-center gap-1.5 text-xs text-[#404040] font-normal cursor-pointer select-none">
+                <span>Notify customer via SMS/Email</span>
+                <input
+                  type="checkbox"
+                  checked={notifyCustomer}
+                  onChange={(e) => setNotifyCustomer(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded text-blue-600 accent-blue-600 focus:ring-0 cursor-pointer"
+                />
+              </label>
+            )}
           </div>
 
-          {/* Cancellation Policy expandable note */}
-          {showCancellationPolicy && (
-            <div className="mt-1.5 p-2 bg-neutral-100/90 rounded-lg text-[11px] text-[#525252] leading-tight animate-in fade-in duration-100">
-              Cancellations made at least 24 hours prior to the reservation receive a 100% refund or court credit. Cancellations within 24 hours may incur a 50% reservation fee.
-            </div>
-          )}
-
-          {/* Error Message */}
-          {error && (
-            <p className="text-[11px] font-semibold text-red-600 mt-1">
-              {error}
+          {isCustomer && (
+            <p className="mt-1 text-[11px] font-semibold text-[#c42b2b] leading-tight">
+              Payments are non-refundable. Cancelling will not return your payment.
             </p>
           )}
 
-          {/* 2nd HORIZONTAL SEPARATOR */}
+          {showCancellationPolicy && (
+            <div className="mt-1.5 p-2 bg-neutral-100/90 rounded-lg text-[11px] text-[#525252] leading-tight animate-in fade-in duration-100">
+              {/* Matches the customer-side Booking Policy. Confirm final wording with the client. */}
+              Cancellations must be made at least 24 hours before the schedule. Cancellations less than 24 hours before are not allowed. Full payment is required and non-refundable.
+            </div>
+          )}
+
+          {error && <p className="text-[11px] font-semibold text-red-600 mt-1">{error}</p>}
+
           <div className="mx-2.5 h-px bg-[#dedbc4] mt-2.5 mb-3 sm:mt-3 sm:mb-3.5" />
 
-          {/* ================= BUTTONS ROW ================= */}
+          {/* BUTTONS */}
           <div className="w-full flex items-center justify-between gap-2 pt-0.5">
-            {/* Left button: "Back" when opened from the View modal, otherwise "Close" */}
             <button
               type="button"
               onClick={fromView ? onBack : onClose}
-              className="px-6 sm:px-7 py-2 rounded-full font-bold text-xs sm:text-sm bg-[#d1d5db] text-[#121212] hover:bg-[#c4c8ce] active:scale-[0.98] transition-all cursor-pointer text-center"
+              disabled={saving}
+              className="px-6 sm:px-7 py-2 rounded-full font-bold text-xs sm:text-sm bg-[#d1d5db] text-[#121212] hover:bg-[#c4c8ce] active:scale-[0.98] transition-all cursor-pointer text-center disabled:opacity-50"
             >
               {fromView ? 'Back' : 'Close'}
             </button>
 
-            {/* Confirm Cancellation button */}
             <button
               type="submit"
-              className="px-6 sm:px-7 py-2 rounded-full font-bold text-xs sm:text-sm bg-[#c42b2b] text-white hover:bg-[#a82424] active:scale-[0.98] transition-all cursor-pointer shadow-xs text-center"
+              disabled={saving}
+              className="px-6 sm:px-7 py-2 rounded-full font-bold text-xs sm:text-sm bg-[#c42b2b] text-white hover:bg-[#a82424] active:scale-[0.98] transition-all cursor-pointer shadow-xs text-center disabled:opacity-60 disabled:cursor-wait"
             >
-              Confirm Cancellation
+              {saving ? 'Cancelling...' : 'Confirm Cancellation'}
             </button>
           </div>
         </form>

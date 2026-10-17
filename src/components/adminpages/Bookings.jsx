@@ -1,24 +1,14 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Search, Calendar, ChevronDown, MoreHorizontal, ChevronLeft, ChevronRight, RotateCcw, Check } from 'lucide-react';
 import BookingsTblMenu from './BookingsTblMenu';
 import BookingsViewModal from './BookingsViewModal';
 import BookingsRescheduleModal from './BookingsRescheduleModal';
 import BookingsCancelModal from './BookingsCancelModal';
+import { fetchAdminBookings, cancelBooking, rescheduleBooking } from '../../../lib/bookingService';
 
-export const INITIAL_BOOKINGS = [
-  { ref: 'CR-1006', customer: 'Alyssa Cruz', date: 'Aug 27, 2026', time: '6:00 PM – 7:00 PM', pax: '4', amount: '₱ 300', status: 'Reserved' },
-  { ref: 'CR-1007', customer: 'Crystal Florano', date: 'Aug 28, 2026', time: '6:00 AM – 8:00 AM', pax: '4', amount: '₱ 400', status: 'Reserved' },
-  { ref: 'CR-1008', customer: 'Rovic Rosales', date: 'Aug 29, 2026', time: '10:00 AM – 12:00 PM', pax: '9', amount: '₱ 500', status: 'Reserved' },
-  { ref: 'CR-1009', customer: 'Mark Deniña', date: 'Aug 29, 2026', time: '1:00 PM – 3:00 PM', pax: '7', amount: '₱ 400', status: 'Reserved' },
-  { ref: 'CR-1010', customer: 'Joseph Armia', date: 'Aug 30, 2026', time: '8:00 AM – 10:00 AM', pax: '8', amount: '₱ 400', status: 'Reserved' },
-  { ref: 'CR-1004', customer: 'Shan Enriquez', date: 'Aug 25, 2026', time: '4:00 PM – 6:00 PM', pax: '5', amount: '₱ 400', status: 'Cancelled' },
-  { ref: 'CR-1005', customer: 'Paolo Reyes', date: 'Aug 26, 2026', time: '3:00 PM – 5:00 PM', pax: '6', amount: '₱ 400', status: 'Cancelled' },
-  { ref: 'CR-1001', customer: 'David Chua', date: 'Aug 24, 2026', time: '7:00 AM – 9:00 AM', pax: '7', amount: '₱ 400', status: 'Completed' },
-  { ref: 'CR-1002', customer: 'Kim Santos', date: 'Aug 24, 2026', time: '10:00 AM – 12:00 PM', pax: '8', amount: '₱ 400', status: 'Completed' },
-  { ref: 'CR-1003', customer: 'Liza Fernandez', date: 'Aug 24, 2026', time: '6:00 PM – 9:00 PM', pax: '9', amount: '₱ 1,150', status: 'Completed' },
-  { ref: 'CR-1011', customer: 'Brian Oconer', date: 'Aug 31, 2026', time: '8:00 AM – 10:00 AM', pax: '4', amount: '₱ 400', status: 'Reserved' },
-  { ref: 'CR-1012', customer: 'Andrea Del Rosario', date: 'Aug 31, 2026', time: '1:00 PM – 3:00 PM', pax: '6', amount: '₱ 500', status: 'Reserved' },
-];
+// Kept (empty) only so other files that still import it don't break.
+// Real data now comes from Supabase.
+export const INITIAL_BOOKINGS = [];
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -33,12 +23,23 @@ const MONTH_SHORT = [
 const STATUS_OPTIONS = [
   { id: 'ALL', label: 'All Statuses' },
   { id: 'Reserved', label: 'Reserved', color: '#ffed76', textColor: '#a5950c' },
+  { id: 'On-going', label: 'On-going', color: '#bfdbfe', textColor: '#1d4ed8' },
   { id: 'Cancelled', label: 'Cancelled', color: '#ff9d90', textColor: '#c42b2b' },
   { id: 'Completed', label: 'Completed', color: '#baff95', textColor: '#4ea711' },
 ];
 
-export default function Bookings() {
-  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
+const BADGE_STYLES = {
+  Reserved: 'bg-[#ffed76] text-[#a5950c]',
+  'On-going': 'bg-[#bfdbfe] text-[#1d4ed8]',
+  Cancelled: 'bg-[#ff9d90] text-[#c42b2b]',
+  Completed: 'bg-[#baff95] text-[#4ea711]',
+};
+
+export default function Bookings({ refreshKey = 0 }) {
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
@@ -49,33 +50,54 @@ export default function Bookings() {
   // Status dropdown popover state
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
 
-  // Row action (kebab) menu state: which booking it belongs to + where its button is on screen
+  // Row action (kebab) menu state
   const [openMenu, setOpenMenu] = useState(null); // { booking, rect } | null
   const pressedWhileOpenRef = useRef(false);
 
-  // View modal state: the booking currently being viewed (null = modal closed)
+  // Modals
   const [viewBooking, setViewBooking] = useState(null);
-
-  // Reschedule modal state: the booking being rescheduled (null = modal closed),
-  // and whether it was opened from inside the View modal (so the left button reads "Back")
-  const [rescheduleBooking, setRescheduleBooking] = useState(null);
+  const [rescheduleBooking_, setRescheduleBooking] = useState(null);
   const [rescheduleFromView, setRescheduleFromView] = useState(false);
-
-  // Cancel modal state: the booking being cancelled (null = modal closed),
-  // and whether it was opened from inside the View modal (so the left button reads "Back")
-  const [cancelBooking, setCancelBooking] = useState(null);
+  const [cancelBooking_, setCancelBooking] = useState(null);
   const [cancelFromView, setCancelFromView] = useState(false);
 
-  // Pagination state: 10 rows per page
+  // Pagination: 10 rows per page
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Calendar popover view state (defaults to August 2026)
-  const [viewYear, setViewYear] = useState(2026);
-  const [viewMonth, setViewMonth] = useState(7);
+  // Calendar popover view state (defaults to the current month)
+  const [viewYear, setViewYear] = useState(new Date().getFullYear());
+  const [viewMonth, setViewMonth] = useState(new Date().getMonth());
 
   const datePickerRef = useRef(null);
   const statusDropdownRef = useRef(null);
+
+  // ------------------------------------------------------------------
+  // Load bookings from Supabase
+  // ------------------------------------------------------------------
+  const loadBookings = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
+    setLoadError('');
+    try {
+      const rows = await fetchAdminBookings();
+      setBookings(rows);
+    } catch (err) {
+      setLoadError(err.message);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, []);
+
+  // Reload on first open and whenever a booking is added (refreshKey changes)
+  useEffect(() => {
+    loadBookings();
+  }, [loadBookings, refreshKey]);
+
+  // Refresh quietly every minute so Reserved -> On-going -> Completed updates by itself
+  useEffect(() => {
+    const timer = setInterval(() => loadBookings({ silent: true }), 60 * 1000);
+    return () => clearInterval(timer);
+  }, [loadBookings]);
 
   // Close popovers on click outside
   useEffect(() => {
@@ -106,7 +128,6 @@ export default function Bookings() {
     const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate();
 
     const days = [];
-
     for (let i = firstDayIndex - 1; i >= 0; i--) {
       days.push({
         dayNumber: prevMonthDays - i,
@@ -115,16 +136,9 @@ export default function Bookings() {
         month: viewMonth === 0 ? 11 : viewMonth - 1,
       });
     }
-
     for (let d = 1; d <= daysInMonth; d++) {
-      days.push({
-        dayNumber: d,
-        isCurrentMonth: true,
-        year: viewYear,
-        month: viewMonth,
-      });
+      days.push({ dayNumber: d, isCurrentMonth: true, year: viewYear, month: viewMonth });
     }
-
     const remaining = 35 - days.length > 0 ? 35 - days.length : 42 - days.length;
     for (let d = 1; d <= remaining; d++) {
       days.push({
@@ -134,7 +148,6 @@ export default function Bookings() {
         month: viewMonth === 11 ? 0 : viewMonth + 1,
       });
     }
-
     return days;
   }, [viewYear, viewMonth]);
 
@@ -159,11 +172,7 @@ export default function Bookings() {
   };
 
   const handleDaySelect = (dayObj) => {
-    setSelectedDate({
-      year: dayObj.year,
-      month: dayObj.month,
-      day: dayObj.dayNumber,
-    });
+    setSelectedDate({ year: dayObj.year, month: dayObj.month, day: dayObj.dayNumber });
     setCurrentPage(1);
     setIsDatePickerOpen(false);
   };
@@ -194,15 +203,12 @@ export default function Bookings() {
   // Kebab menu handlers
   const closeRowMenu = () => setOpenMenu(null);
 
-  // Runs before the menu's own click-outside handler, so we can tell if this button was
-  // pressed while its menu was already open (the menu then closes itself on mousedown).
   const handleRowMenuMouseDown = (booking) => {
-    pressedWhileOpenRef.current = openMenu?.booking.ref === booking.ref;
+    pressedWhileOpenRef.current = openMenu?.booking.id === booking.id;
   };
 
   const handleToggleRowMenu = (e, booking) => {
     if (pressedWhileOpenRef.current) {
-      // Menu was open and has just been closed by the outside-click handler: keep it closed
       pressedWhileOpenRef.current = false;
       return;
     }
@@ -213,88 +219,69 @@ export default function Bookings() {
     });
   };
 
-  // Open the view modal for the chosen booking
-  const handleViewBooking = (booking) => {
-    setViewBooking(booking);
-  };
-
+  // View modal
+  const handleViewBooking = (booking) => setViewBooking(booking);
   const closeViewModal = () => setViewBooking(null);
 
-  // Reschedule opened from the kebab menu: left button reads "Close"
+  // Reschedule modal
   const handleRescheduleBooking = (booking) => {
     setRescheduleFromView(false);
     setRescheduleBooking(booking);
   };
-
-  // Reschedule opened from inside the View modal: left button reads "Back"
-  // (the View modal closes itself right before calling this)
   const handleRescheduleFromView = (booking) => {
     setRescheduleFromView(true);
     setRescheduleBooking(booking);
   };
-
   const closeRescheduleModal = () => {
     setRescheduleBooking(null);
     setRescheduleFromView(false);
   };
-
-  // "Back": close the reschedule modal and return to the View modal for the same booking
   const handleBackFromReschedule = () => {
-    setViewBooking(rescheduleBooking);
+    setViewBooking(rescheduleBooking_);
     setRescheduleBooking(null);
     setRescheduleFromView(false);
   };
 
-  // Apply the new date/time to the booking in the table
-  const handleConfirmReschedule = (updated) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.ref === updated.ref ? { ...b, date: updated.date, time: updated.time } : b))
-    );
+  // Saves to the database. Errors are thrown back so the modal can show them.
+  const handleConfirmReschedule = async ({ booking, date, startTime, reason, notes }) => {
+    await rescheduleBooking(booking, { date, startTime, reason, notes });
+    await loadBookings({ silent: true });
   };
 
-  // Cancel opened from the kebab menu: left button reads "Close"
+  // Cancel modal
   const handleCancelBooking = (booking) => {
     setCancelFromView(false);
     setCancelBooking(booking);
   };
-
-  // Cancel opened from inside the View modal: left button reads "Back"
-  // (the View modal closes itself right before calling this)
   const handleCancelFromView = (booking) => {
     setCancelFromView(true);
     setCancelBooking(booking);
   };
-
   const closeCancelModal = () => {
     setCancelBooking(null);
     setCancelFromView(false);
   };
-
-  // "Back": close the cancel modal and return to the View modal for the same booking
   const handleBackFromCancel = () => {
-    setViewBooking(cancelBooking);
+    setViewBooking(cancelBooking_);
     setCancelBooking(null);
     setCancelFromView(false);
   };
 
-  // Set the booking's status to Cancelled in the table
-  const handleConfirmCancel = (updated) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.ref === updated.ref ? { ...b, status: 'Cancelled' } : b))
-    );
+  const handleConfirmCancel = async ({ booking, reason, notes }) => {
+    await cancelBooking(booking, { reason, notes });
+    await loadBookings({ silent: true });
   };
 
-  // Filter Bookings logic
+  // Filter logic
   const filteredBookings = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
     return bookings.filter((b) => {
-      const query = searchQuery.trim().toLowerCase();
       const matchesSearch =
         !query ||
-        b.customer.toLowerCase().includes(query) ||
-        b.ref.toLowerCase().includes(query);
+        (b.customer || '').toLowerCase().includes(query) ||
+        (b.ref || '').toLowerCase().includes(query);
 
-      const matchesStatus =
-        statusFilter === 'ALL' || b.status.toUpperCase() === statusFilter.toUpperCase();
+      const matchesStatus = statusFilter === 'ALL' || b.status === statusFilter;
 
       let matchesDate = true;
       if (selectedDate) {
@@ -310,13 +297,10 @@ export default function Bookings() {
     setCurrentPage(1);
   }, [searchQuery, statusFilter]);
 
-  // Close the row menu whenever the visible rows change (filters / page)
   useEffect(() => {
     setOpenMenu(null);
   }, [searchQuery, statusFilter, selectedDate, currentPage]);
 
-  // The menu is placed with fixed positioning (so the table's scroll container can't clip it),
-  // so close it if the page scrolls or resizes underneath it
   useEffect(() => {
     if (!openMenu) return;
     const close = () => setOpenMenu(null);
@@ -334,38 +318,16 @@ export default function Bookings() {
     return filteredBookings.slice(startIndex, startIndex + itemsPerPage);
   }, [filteredBookings, currentPage, itemsPerPage]);
 
-  const renderStatusBadge = (status) => {
-    switch (status) {
-      case 'Reserved':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#ffed76] text-[#a5950c] select-none whitespace-nowrap">
-            <span className="text-[8px] leading-none">•</span>
-            <span>Reserved</span>
-          </span>
-        );
-      case 'Cancelled':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#ff9d90] text-[#c42b2b] select-none whitespace-nowrap">
-            <span className="text-[8px] leading-none">•</span>
-            <span>Cancelled</span>
-          </span>
-        );
-      case 'Completed':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#baff95] text-[#4ea711] select-none whitespace-nowrap">
-            <span className="text-[8px] leading-none">•</span>
-            <span>Completed</span>
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-200 text-neutral-800 select-none whitespace-nowrap">
-            <span className="text-[8px] leading-none">•</span>
-            <span>{status}</span>
-          </span>
-        );
-    }
-  };
+  const renderStatusBadge = (status) => (
+    <span
+      className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold select-none whitespace-nowrap ${
+        BADGE_STYLES[status] || 'bg-neutral-200 text-neutral-800'
+      }`}
+    >
+      <span className="text-[8px] leading-none">•</span>
+      <span>{status}</span>
+    </span>
+  );
 
   return (
     <div
@@ -392,7 +354,7 @@ export default function Bookings() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search here"
+              placeholder="Search name or reference #"
               className="w-full pl-3.5 pr-8 py-1.5 h-[34px] sm:h-[36px] bg-[#ffffff] border border-[#121212] rounded-xl text-xs text-[#121212] placeholder-[#6b7280] focus:outline-none focus:ring-1 focus:ring-[#121212] transition-all"
             />
             <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-[#6b7280]">
@@ -400,7 +362,7 @@ export default function Bookings() {
             </div>
           </div>
 
-          {/* Right Filters: Date filter, Custom Status Dropdown, and Reset Filter button */}
+          {/* Right Filters */}
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
             {/* Date filter */}
             <div className="relative" ref={datePickerRef}>
@@ -416,39 +378,22 @@ export default function Bookings() {
                 <span className="truncate">{formattedDisplayDate}</span>
               </button>
 
-              {/* Functional Date Picker Calendar Popover Dropdown */}
               {isDatePickerOpen && (
                 <div className="absolute top-full mt-1.5 right-0 sm:left-0 z-50 w-72 bg-[#ffffff] border border-[#121212] rounded-2xl p-3.5 shadow-xl select-none animate-in fade-in duration-100">
                   <div className="flex items-center justify-between pb-2 mb-2 border-b border-neutral-100">
-                    <button
-                      type="button"
-                      onClick={handlePrevMonth}
-                      className="p-1 hover:bg-neutral-100 rounded-lg text-[#121212] transition-colors cursor-pointer"
-                      title="Previous month"
-                    >
+                    <button type="button" onClick={handlePrevMonth} className="p-1 hover:bg-neutral-100 rounded-lg text-[#121212] transition-colors cursor-pointer" title="Previous month">
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     <span className="text-xs font-bold text-[#121212]">
                       {MONTH_NAMES[viewMonth]} {viewYear}
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleNextMonth}
-                      className="p-1 hover:bg-neutral-100 rounded-lg text-[#121212] transition-colors cursor-pointer"
-                      title="Next month"
-                    >
+                    <button type="button" onClick={handleNextMonth} className="p-1 hover:bg-neutral-100 rounded-lg text-[#121212] transition-colors cursor-pointer" title="Next month">
                       <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
 
                   <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold text-[#6b7280] mb-1">
-                    <span>Su</span>
-                    <span>Mo</span>
-                    <span>Tu</span>
-                    <span>We</span>
-                    <span>Th</span>
-                    <span>Fr</span>
-                    <span>Sa</span>
+                    <span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span>
                   </div>
 
                   <div className="grid grid-cols-7 gap-1 text-center text-xs">
@@ -479,11 +424,7 @@ export default function Bookings() {
                   </div>
 
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-neutral-100 text-[11px]">
-                    <button
-                      type="button"
-                      onClick={handleClearDate}
-                      className="text-[#6b7280] hover:text-[#121212] font-semibold cursor-pointer"
-                    >
+                    <button type="button" onClick={handleClearDate} className="text-[#6b7280] hover:text-[#121212] font-semibold cursor-pointer">
                       Clear
                     </button>
                     <button
@@ -492,11 +433,7 @@ export default function Bookings() {
                         const now = new Date();
                         setViewYear(now.getFullYear());
                         setViewMonth(now.getMonth());
-                        handleDaySelect({
-                          year: now.getFullYear(),
-                          month: now.getMonth(),
-                          dayNumber: now.getDate(),
-                        });
+                        handleDaySelect({ year: now.getFullYear(), month: now.getMonth(), dayNumber: now.getDate() });
                       }}
                       className="text-[#121212] hover:underline font-bold cursor-pointer"
                     >
@@ -507,7 +444,7 @@ export default function Bookings() {
               )}
             </div>
 
-            {/* Custom Status Filter Dropdown */}
+            {/* Status Filter */}
             <div className="relative" ref={statusDropdownRef}>
               <button
                 type="button"
@@ -518,12 +455,9 @@ export default function Bookings() {
                 <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-[#6b7280]">
                   <ChevronDown className="w-3.5 h-3.5 stroke-[1.8]" />
                 </div>
-                <span className="truncate">
-                  {statusFilter === 'ALL' ? 'All Statuses' : statusFilter}
-                </span>
+                <span className="truncate">{statusFilter === 'ALL' ? 'All Statuses' : statusFilter}</span>
               </button>
 
-              {/* Status Dropdown Popover */}
               {isStatusDropdownOpen && (
                 <div className="absolute top-full mt-1.5 right-0 z-50 w-44 bg-[#ffffff] border border-[#121212] rounded-xl p-1 shadow-xl select-none animate-in fade-in duration-100">
                   {STATUS_OPTIONS.map((opt) => {
@@ -534,9 +468,7 @@ export default function Bookings() {
                         type="button"
                         onClick={() => handleSelectStatus(opt.id)}
                         className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer text-left ${
-                          isSelected
-                            ? 'bg-neutral-100 text-[#121212] font-bold'
-                            : 'text-[#121212] hover:bg-neutral-50'
+                          isSelected ? 'bg-neutral-100 text-[#121212] font-bold' : 'text-[#121212] hover:bg-neutral-50'
                         }`}
                       >
                         <div className="flex items-center gap-2">
@@ -581,24 +513,11 @@ export default function Bookings() {
           <table className="w-full text-left border-collapse min-w-[760px]">
             <thead>
               <tr className="border-b border-[#121212]">
-                <th className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e]">
-                  REF #
-                </th>
-                <th className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e]">
-                  CUSTOMER NAME
-                </th>
-                <th className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e]">
-                  DATE
-                </th>
-                <th className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e]">
-                  TIME
-                </th>
-                <th className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e]">
-                  PAX
-                </th>
-                <th className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e]">
-                  AMOUNT
-                </th>
+                {['REF #', 'CUSTOMER NAME', 'DATE', 'TIME', 'PAX', 'AMOUNT'].map((h) => (
+                  <th key={h} className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e]">
+                    {h}
+                  </th>
+                ))}
                 <th className="py-2.5 px-3 sm:px-4 text-[10px] sm:text-[10.5px] font-bold tracking-wider uppercase text-[#5f5e5e] text-center">
                   STATUS
                 </th>
@@ -609,42 +528,33 @@ export default function Bookings() {
             </thead>
 
             <tbody>
-              {paginatedBookings.length > 0 ? (
-                paginatedBookings.map((b, idx) => {
-                  const isMenuOpenForRow = openMenu?.booking.ref === b.ref;
+              {loading ? (
+                <tr>
+                  <td colSpan={8} className="py-6 text-center text-xs text-[#5f5e5e]">
+                    Loading bookings...
+                  </td>
+                </tr>
+              ) : loadError ? (
+                <tr>
+                  <td colSpan={8} className="py-6 text-center text-xs text-red-600">
+                    Couldn't load bookings: {loadError}{' '}
+                    <button type="button" onClick={() => loadBookings()} className="underline font-semibold cursor-pointer">
+                      Try again
+                    </button>
+                  </td>
+                </tr>
+              ) : paginatedBookings.length > 0 ? (
+                paginatedBookings.map((b) => {
+                  const isMenuOpenForRow = openMenu?.booking.id === b.id;
                   return (
-                    <tr
-                      key={b.ref || idx}
-                      className="border-b border-[#c4c9ac] hover:bg-neutral-50/70 transition-colors"
-                    >
-                      <td className="py-2 px-3 sm:px-4 text-xs font-semibold text-[#121212] whitespace-nowrap">
-                        {b.ref}
-                      </td>
-
-                      <td className="py-2 px-3 sm:px-4 text-xs font-medium text-[#121212] whitespace-nowrap">
-                        {b.customer}
-                      </td>
-
-                      <td className="py-2 px-3 sm:px-4 text-xs font-normal text-[#6b7280] whitespace-nowrap">
-                        {b.date}
-                      </td>
-
-                      <td className="py-2 px-3 sm:px-4 text-xs font-normal text-[#6b7280] whitespace-nowrap">
-                        {b.time}
-                      </td>
-
-                      <td className="py-2 px-3 sm:px-4 text-xs font-medium text-[#121212] whitespace-nowrap">
-                        {b.pax}
-                      </td>
-
-                      <td className="py-2 px-3 sm:px-4 text-xs font-semibold text-[#121212] whitespace-nowrap tabular-nums">
-                        {b.amount}
-                      </td>
-
-                      <td className="py-2 px-3 sm:px-4 text-center whitespace-nowrap">
-                        {renderStatusBadge(b.status)}
-                      </td>
-
+                    <tr key={b.id} className="border-b border-[#c4c9ac] hover:bg-neutral-50/70 transition-colors">
+                      <td className="py-2 px-3 sm:px-4 text-xs font-semibold text-[#121212] whitespace-nowrap">{b.ref}</td>
+                      <td className="py-2 px-3 sm:px-4 text-xs font-medium text-[#121212] whitespace-nowrap">{b.customer}</td>
+                      <td className="py-2 px-3 sm:px-4 text-xs font-normal text-[#6b7280] whitespace-nowrap">{b.date}</td>
+                      <td className="py-2 px-3 sm:px-4 text-xs font-normal text-[#6b7280] whitespace-nowrap">{b.time}</td>
+                      <td className="py-2 px-3 sm:px-4 text-xs font-medium text-[#121212] whitespace-nowrap">{b.pax}</td>
+                      <td className="py-2 px-3 sm:px-4 text-xs font-semibold text-[#121212] whitespace-nowrap tabular-nums">{b.amount}</td>
+                      <td className="py-2 px-3 sm:px-4 text-center whitespace-nowrap">{renderStatusBadge(b.status)}</td>
                       <td className="py-2 px-3 sm:px-4 text-center whitespace-nowrap">
                         <button
                           type="button"
@@ -653,9 +563,7 @@ export default function Bookings() {
                           aria-haspopup="menu"
                           aria-expanded={isMenuOpenForRow}
                           className={`inline-flex items-center justify-center w-7 h-[18px] border rounded-[4px] text-[#121212] hover:border-[#121212] hover:bg-neutral-100 transition-colors cursor-pointer ${
-                            isMenuOpenForRow
-                              ? 'border-[#121212] bg-neutral-100'
-                              : 'border-[#121212]/35'
+                            isMenuOpenForRow ? 'border-[#121212] bg-neutral-100' : 'border-[#121212]/35'
                           }`}
                           title="Actions"
                         >
@@ -668,7 +576,9 @@ export default function Bookings() {
               ) : (
                 <tr>
                   <td colSpan={8} className="py-6 text-center text-xs text-[#5f5e5e]">
-                    No bookings found matching your search.
+                    {bookings.length === 0
+                      ? 'No bookings yet. Use "Add Booking" to create one.'
+                      : 'No bookings found matching your search.'}
                   </td>
                 </tr>
               )}
@@ -740,7 +650,7 @@ export default function Bookings() {
         </div>
       </div>
 
-      {/* Row actions menu: one shared instance, anchored to whichever kebab button was clicked */}
+      {/* Row actions menu */}
       {openMenu && (
         <div
           style={{
@@ -750,7 +660,7 @@ export default function Bookings() {
             width: openMenu.rect.width,
             height: openMenu.rect.height,
             zIndex: 60,
-            pointerEvents: 'none', // don't block the kebab button underneath
+            pointerEvents: 'none',
           }}
         >
           <div style={{ pointerEvents: 'auto' }}>
@@ -766,7 +676,6 @@ export default function Bookings() {
         </div>
       )}
 
-      {/* View booking modal: its Reschedule / Cancel Booking buttons open those modals in "Back" mode */}
       <BookingsViewModal
         isOpen={Boolean(viewBooking)}
         booking={viewBooking}
@@ -775,20 +684,18 @@ export default function Bookings() {
         onCancel={handleCancelFromView}
       />
 
-      {/* Reschedule modal: "Close" from the kebab menu, "Back" when opened from the View modal */}
       <BookingsRescheduleModal
-        isOpen={Boolean(rescheduleBooking)}
-        booking={rescheduleBooking}
+        isOpen={Boolean(rescheduleBooking_)}
+        booking={rescheduleBooking_}
         fromView={rescheduleFromView}
         onClose={closeRescheduleModal}
         onBack={handleBackFromReschedule}
         onConfirmReschedule={handleConfirmReschedule}
       />
 
-      {/* Cancel modal: "Close" from the kebab menu, "Back" when opened from the View modal */}
       <BookingsCancelModal
-        isOpen={Boolean(cancelBooking)}
-        booking={cancelBooking}
+        isOpen={Boolean(cancelBooking_)}
+        booking={cancelBooking_}
         fromView={cancelFromView}
         onClose={closeCancelModal}
         onBack={handleBackFromCancel}

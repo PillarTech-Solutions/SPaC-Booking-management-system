@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+// ⚠ Adjust if this file is not 3 folders below the project root
+import { calculatePrice, parseHour, capacityFor, RULES } from '../../../lib/bookingService';
 
 export default function BookingStep3({
   bookingData,
@@ -14,19 +16,18 @@ export default function BookingStep3({
   const selectedYear = bookingData.year || 2026;
   const startTime = bookingData.startTime || '08:00 AM';
   const duration = bookingData.duration || 1;
-  const players = bookingData.players || 4;
-  const paddles = bookingData.paddles || 2;
-  const balls = bookingData.balls || 1;
+  const players = bookingData.players ?? 1;
+  const paddles = bookingData.paddles ?? 0;
+  const balls = bookingData.balls ?? 0;
 
-  // Determine daytime vs nighttime
-  const isNighttime =
-    startTime.includes('PM') &&
-    ['6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM', '10:00 PM', '11:00 PM'].includes(startTime) ||
-    startTime === '12:00 AM' ||
-    startTime === '1:00 AM' ||
-    startTime === '2:00 AM';
-
-  const rateLabel = isNighttime ? 'Nighttime • ₱300/hr' : 'Daytime • ₱200/hr';
+  // Same pricing rules as the database (night rate starts 4:00 PM)
+  const price = calculatePrice({ startHour: parseHour(startTime), duration, players, paddles, balls });
+  const rateLabel =
+    price.dayHours && price.nightHours
+      ? `${price.dayHours} hr Daytime ₱${RULES.dayRate} + ${price.nightHours} hr Nighttime ₱${RULES.nightRate}`
+      : price.nightHours
+      ? `Nighttime • ₱${RULES.nightRate}/hr`
+      : `Daytime • ₱${RULES.dayRate}/hr`;
 
   const handleContinue = () => {
     if (!agreed) {
@@ -116,6 +117,16 @@ export default function BookingStep3({
           <span className="font-bold text-[#171717]">{players}</span>
         </div>
 
+        {/* Row 4b: Extra players (computed automatically from the hour-based limit) */}
+        <div className="flex items-center justify-between border-b border-dashed border-[#D6CFBE] pb-3.5 text-sm">
+          <span className="font-medium text-neutral-500">
+            Extra players <span className="text-xs">(above {capacityFor(duration)})</span>
+          </span>
+          <span className="font-semibold text-[#171717]">
+            {price.extraPlayers} × ₱{RULES.extraPlayerFee}
+          </span>
+        </div>
+
         {/* Row 5: Paddle rental */}
         <div className="flex items-center justify-between border-b border-dashed border-[#D6CFBE] pb-3.5 text-sm">
           <span className="font-medium text-neutral-500">Paddle rental</span>
@@ -154,7 +165,7 @@ export default function BookingStep3({
             className="mt-0.5 w-4 h-4 rounded border-neutral-300 text-black focus:ring-[#ccff00] cursor-pointer"
           />
           <span className="text-xs sm:text-[13px] text-neutral-600 leading-snug">
-            I agree to the <span className="font-semibold text-neutral-900">booking policy</span> — cancellations less than 24 hours before the schedule are not allowed, and bookings are transferable but non-refundable.
+            I agree to the <span className="font-semibold text-neutral-900">booking policy</span> — full payment is required and non-refundable. Cancellations and reschedules must be made at least 24 hours before the schedule (reschedules are subject to availability).
           </span>
         </label>
         {policyError && (

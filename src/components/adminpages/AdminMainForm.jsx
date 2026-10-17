@@ -66,6 +66,9 @@ export default function AdminMainForm() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
 
+  // Increases every time a booking is added, so the Bookings table knows to reload
+  const [bookingsVersion, setBookingsVersion] = useState(0);
+
   const profileBtnRef = useRef(null);
 
   // Guard active tab: if user has an unauthorized tab selected, fall back to safe default
@@ -87,8 +90,8 @@ export default function AdminMainForm() {
   const canAddBooking = ['Owner', 'Admin', 'Manager', 'Staff', 'Cashier'].includes(userRole);
   const canAccessSettings = ['Owner', 'Admin', 'Manager'].includes(userRole);
 
-  const handleBookingAdded = (booking) => {
-    console.log('New booking:', booking);
+  const handleBookingAdded = () => {
+    setBookingsVersion((v) => v + 1);
   };
 
   const handleLogout = async () => {
@@ -299,7 +302,10 @@ export default function AdminMainForm() {
       <main className="flex-1 w-full max-w-[1520px] mx-auto px-5 sm:px-10 py-5 sm:py-6 flex flex-col">
         <div id={`tab-${activeTab.toLowerCase()}`} className="w-full flex-1">
           {ActivePage ? (
-            <ActivePage onLogout={() => setIsLogoutConfirmOpen(true)} />
+            <ActivePage
+              onLogout={() => setIsLogoutConfirmOpen(true)}
+              refreshKey={bookingsVersion}
+            />
           ) : (
             <div className="py-24 text-center text-sm text-neutral-500">
               The {activeTab.toLowerCase()} page isn't accessible for your current role.

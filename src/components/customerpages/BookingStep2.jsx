@@ -1,4 +1,6 @@
 import React from 'react';
+// ⚠ Adjust if this file is not 3 folders below the project root
+import { capacityFor, RULES } from '../../../lib/bookingService';
 
 export default function BookingStep2({
   bookingData,
@@ -7,9 +9,14 @@ export default function BookingStep2({
   onNext,
   calculatedTotal,
 }) {
-  const players = bookingData.players || 4;
-  const paddles = bookingData.paddles || 2;
-  const balls = bookingData.balls || 1;
+  const players = bookingData.players ?? 1;
+  const paddles = bookingData.paddles ?? 0;
+  const balls = bookingData.balls ?? 0;
+
+  // Policy: 1 hr = 4 pax, 2 hrs = 8 pax, 3 hrs+ = 12 pax. Anyone above that is
+  // automatically an extra player (₱100 each) — no separate input needed.
+  const included = capacityFor(bookingData.duration || 1);
+  const extraPlayers = Math.max(0, players - included);
 
   const handlePlayersChange = (delta) => {
     const updated = Math.max(1, Math.min(24, players + delta));
@@ -85,8 +92,14 @@ export default function BookingStep2({
               No. of Players
             </h3>
             <p className="text-xs sm:text-sm text-neutral-500 mt-0.5">
-              Extra players beyond your court limit: ₱100 each
+              Your {bookingData.duration || 1}-hr booking includes up to {included} players.
+              Extra players: ₱{RULES.extraPlayerFee} each.
             </p>
+            {extraPlayers > 0 && (
+              <p className="text-xs sm:text-sm font-semibold text-[#171717] mt-1">
+                +{extraPlayers} extra player{extraPlayers > 1 ? 's' : ''} (₱{extraPlayers * RULES.extraPlayerFee}) added
+              </p>
+            )}
           </div>
 
           {/* Stepper Controller */}

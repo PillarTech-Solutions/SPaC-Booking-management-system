@@ -1,168 +1,83 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import ModalViewDetails from "./ModalViewDetails";
-import ModalReschedule from "./ModalReschedule";
-import ModalCancelBooking from "./ModalCancelBooking";
+import { CalendarClock, Ban, Eye } from "lucide-react";
+import { useAuth } from "../../context/AuthContext";
+// Same modals as the admin Bookings page (customer mode)
+import BookingsViewModal from "../adminpages/BookingsViewModal";
+import BookingsRescheduleModal from "../adminpages/BookingsRescheduleModal";
+import BookingsCancelModal from "../adminpages/BookingsCancelModal";
+// Customer success pop-ups (shown after a reschedule / cancellation)
 import ModalRescheduleConfirmation from "./ModalRescheduleConfirmation";
 import ModalCancellationConfirmation from "./ModalCancellationConfirmation";
+// ⚠ Adjust if this file is not 3 folders below the project root
+import {
+  fetchMyBookings,
+  customerCancelBooking,
+  customerRescheduleBooking,
+} from "../../../lib/bookingService";
 
 /* ------------------------------------------------------------------ */
-/* Hardcoded sample data (replace with API data later)                 */
+/* Formatting helpers (Manila time, whatever the viewer's timezone)    */
 /* ------------------------------------------------------------------ */
-const CUSTOMER = {
-  customer: "Crystal Florano",
-  contact: "0993 897 8574 • crystal.flora@email.com",
-  source: "Website",
-  payment: "GCash",
-};
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
-const ATTENTION = {
-  id: "att-1",
-  ref: "CR-1008",
-  type: "Court Rental",
-  date: "2026-08-20",
-  start: "08:00",
-  end: "09:00",
-  price: 450,
-  status: "Cancelled",
-  notice: "This slot was cancelled by the admin. Rebook a new time, no charge.",
-  details: {
-    ...CUSTOMER,
-    bookedOn: "Aug 15, 2026",
-    updatedOn: "Aug 18, 2026",
-    pax: 4,
-    addons: "None",
-    note: "-",
-    lines: [
-      { label: "Court Rate (1 hr(s) x ₱ 200)", amount: 200 },
-      { label: "Additional Players (2 x ₱ 100)", amount: 200 },
-      { label: "Paddle Rental (0 x ₱ 100)", amount: 0 },
-      { label: "Ball Rental (1 x ₱ 50)", amount: 50 },
-    ],
-  },
+const manilaParts = (date) => {
+  const m = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+  return { month: MONTHS[m.getUTCMonth()], day: m.getUTCDate(), year: m.getUTCFullYear() };
 };
-
-const INITIAL_BOOKINGS = [
-  {
-    id: "b-1",
-    ref: "CR-1009",
-    type: "Court Rental",
-    date: "2026-08-25",
-    start: "13:00",
-    end: "14:00",
-    price: 350,
-    status: "Reserved",
-    details: {
-      ...CUSTOMER,
-      bookedOn: "Aug 20, 2026",
-      updatedOn: "Aug 20, 2026",
-      pax: 7,
-      addons: "None",
-      note: "-",
-      lines: [
-        { label: "Court Rate (1 hr(s) x ₱ 200)", amount: 200 },
-        { label: "Additional Players (1 x ₱ 100)", amount: 100 },
-        { label: "Paddle Rental (0 x ₱ 100)", amount: 0 },
-        { label: "Ball Rental (1 x ₱ 50)", amount: 50 },
-      ],
-    },
-  },
-  {
-    id: "b-2",
-    ref: "BK-1010",
-    type: "Open Play",
-    date: "2026-08-15",
-    start: "18:00",
-    end: "22:00",
-    price: 150,
-    status: "Completed",
-    details: {
-      ...CUSTOMER,
-      bookedOn: "Aug 10, 2026",
-      updatedOn: "Aug 10, 2026",
-      pax: 1,
-      addons: "None",
-      note: "-",
-      lines: [{ label: "Open Play Entry (1 x ₱ 150)", amount: 150 }],
-    },
-  },
-  {
-    id: "b-3",
-    ref: "CT-1099",
-    type: "Open Play",
-    date: "2026-08-14",
-    start: "18:00",
-    end: "22:00",
-    price: 300,
-    status: "Completed",
-    details: {
-      ...CUSTOMER,
-      bookedOn: "Aug 9, 2026",
-      updatedOn: "Aug 9, 2026",
-      pax: 2,
-      addons: "None",
-      note: "-",
-      lines: [{ label: "Open Play Entry (2 x ₱ 150)", amount: 300 }],
-    },
-  },
-  {
-    id: "b-4",
-    ref: "FM-1455",
-    type: "Private Event",
-    date: "2026-08-08",
-    start: "18:00",
-    end: "22:00",
-    price: 300,
-    status: "Completed",
-    details: {
-      ...CUSTOMER,
-      bookedOn: "Aug 1, 2026",
-      updatedOn: "Aug 2, 2026",
-      pax: 12,
-      addons: "None",
-      note: "-",
-      lines: [{ label: "Event Package", amount: 300 }],
-    },
-  },
-];
-
-/* ------------------------------------------------------------------ */
-/* Formatting helpers                                                  */
-/* ------------------------------------------------------------------ */
-const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const MONTHS_LONG = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-
-const parseDate = (iso) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return { y, m: m - 1, d };
-};
-const fmtDate = (iso) => {
-  const { y, m, d } = parseDate(iso);
-  return `${MONTHS[m]} ${d}, ${y}`;
-};
-const fmtDateLong = (iso) => {
-  const { y, m, d } = parseDate(iso);
-  return `${MONTHS_LONG[m]} ${d}, ${y}`;
-};
-const fmtTime = (t) => {
-  const [h, min] = t.split(":").map(Number);
-  return `${h % 12 === 0 ? 12 : h % 12}:${String(min).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
-};
+const fmtDateLong = (d) =>
+  d.toLocaleDateString("en-US", { timeZone: "Asia/Manila", month: "long", day: "numeric", year: "numeric" });
+const fmtTime = (d) =>
+  d.toLocaleTimeString("en-US", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 const fmtRange = (s, e) => `${fmtTime(s)} - ${fmtTime(e)}`;
-const addHour = (t) => {
-  const [h, min] = t.split(":").map(Number);
-  return `${String((h + 1) % 24).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-};
-const peso = (n) => `₱${n.toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
+const peso = (n) => `₱${Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2 })}`;
 
-/** Adds display labels the modals read (dateLabel, timeLabel). */
-const withLabels = (b) => ({ ...b, dateLabel: fmtDate(b.date), timeLabel: fmtRange(b.start, b.end) });
-
-const TYPE_CLASS = { "Court Rental": "rental", "Open Play": "play", "Private Event": "event" };
+// "Reserved" also shows bookings that are playing right now (On-going)
 const FILTERS = ["All", "Reserved", "Completed", "Cancelled"];
+const matchesFilter = (b, filter) =>
+  filter === "All" || b.status === filter || (filter === "Reserved" && b.status === "On-going");
+
+/* Same button styles as the admin Bookings modals */
+const BTN_BASE =
+  "inline-flex items-center justify-center gap-1.5 px-3.5 sm:px-4 py-1.5 rounded-full font-bold text-xs sm:text-sm active:scale-[0.98] transition-all cursor-pointer whitespace-nowrap";
+const BTN = {
+  outline: `${BTN_BASE} bg-[#ffffff] border border-[#121212] text-[#121212] hover:bg-[#fbfaf1] shadow-2xs`,
+  danger: `${BTN_BASE} bg-[#C42B2B] text-white hover:bg-[#a82424] shadow-xs`,
+  primary: `${BTN_BASE} bg-[#ccff00] text-[#121212] hover:bg-[#b8e600] shadow-xs`,
+  dark: `${BTN_BASE} bg-[#121212] text-[#ccff00] hover:bg-black shadow-xs`,
+};
+
+function ViewButton({ onClick }) {
+  return (
+    <button type="button" className={BTN.outline} onClick={onClick}>
+      <Eye className="w-3.5 h-3.5 stroke-[2] text-[#121212]" />
+      <span>View Details</span>
+    </button>
+  );
+}
+
+function RescheduleButton({ onClick, dark = false }) {
+  return (
+    <button type="button" className={dark ? BTN.dark : BTN.outline} onClick={onClick}>
+      <CalendarClock className={`w-3.5 h-3.5 stroke-[2] ${dark ? "text-[#ccff00]" : "text-[#121212]"}`} />
+      <span>Reschedule</span>
+    </button>
+  );
+}
+
+function CancelButton({ onClick }) {
+  return (
+    <button type="button" className={BTN.danger} onClick={onClick}>
+      <Ban className="w-3.5 h-3.5 stroke-[2.2] text-white" />
+      <span>Cancel Booking</span>
+    </button>
+  );
+}
+
+const statusClass = (status) => `bk-status--${String(status).toLowerCase().replace(/[^a-z]/g, "")}`;
 
 /* ------------------------------------------------------------------ */
-/* Overlay: shared backdrop for every popup (Esc / outside click close)*/
+/* Overlay for the success pop-ups (Esc / outside click closes)        */
 /* ------------------------------------------------------------------ */
 function Overlay({ onClose, children }) {
   useEffect(() => {
@@ -188,38 +103,39 @@ function Overlay({ onClose, children }) {
 /* Booking row                                                         */
 /* ------------------------------------------------------------------ */
 function BookingRow({ booking, onView, onReschedule, onCancel }) {
-  const { y, m, d } = parseDate(booking.date);
-  const reserved = booking.status === "Reserved";
+  const { month, day, year } = manilaParts(booking.start);
 
   return (
-    <article className={`bk-card bk-card--${TYPE_CLASS[booking.type]}`}>
+    <article className="bk-card bk-card--rental">
       <div className="bk-card-date">
-        <span className="bk-card-month">{MONTHS[m].toUpperCase()}</span>
-        <span className="bk-card-day">{d}</span>
-        <span className="bk-card-year">{y}</span>
+        <span className="bk-card-month">{month}</span>
+        <span className="bk-card-day">{day}</span>
+        <span className="bk-card-year">{year}</span>
       </div>
 
       <div className="bk-card-main">
-        <span className={`bk-type bk-type--${TYPE_CLASS[booking.type]}`}>{booking.type}</span>
+        <span className="bk-type bk-type--rental">Court Rental</span>
         <p className="bk-card-time">{fmtRange(booking.start, booking.end)}</p>
         <p className="bk-card-ref">Ref: {booking.ref}</p>
       </div>
 
-      <p className="bk-card-price">{peso(booking.price)}</p>
-      <span className={`bk-status bk-status--${booking.status.toLowerCase()}`}>
+      <p className="bk-card-price">{peso(booking.raw.total_amount)}</p>
+      <span className={`bk-status ${statusClass(booking.status)}`}>
         <i aria-hidden="true" />
         {booking.status}
       </span>
 
       <div className="bk-card-actions">
-        <button type="button" className="bk-btn bk-btn--outline" onClick={() => onView(booking)}>View Details</button>
-        {reserved && (
-          <>
-            <button type="button" className="bk-btn bk-btn--outline" onClick={() => onReschedule(booking)}>Reschedule</button>
-            <button type="button" className="bk-btn bk-btn--danger" onClick={() => onCancel(booking)}>Cancel</button>
-          </>
+        <ViewButton onClick={() => onView(booking)} />
+        {booking.canReschedule && !booking.needsAttention && (
+          <RescheduleButton onClick={() => onReschedule(booking)} />
         )}
+        {booking.canCancel && <CancelButton onClick={() => onCancel(booking)} />}
       </div>
+
+      {booking.changesClosed && (
+        <p className="bk-card-hint">Changes close 24 hours before your schedule.</p>
+      )}
     </article>
   );
 }
@@ -227,50 +143,95 @@ function BookingRow({ booking, onView, onReschedule, onCancel }) {
 /* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
-export default function BookingHistory() {
-  const [bookings, setBookings] = useState(INITIAL_BOOKINGS);
-  const [attention, setAttention] = useState(ATTENTION);
+export default function BookingHistory({ onNavigateToTab }) {
+  const { user } = useAuth();
+
+  const [bookings, setBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [filter, setFilter] = useState("All");
 
-  // modal: { kind: "details" | "reschedule" | "cancel", booking }
-  const [modal, setModal] = useState(null);
-  // confirmation: { kind: "reschedule" | "cancel", ...props }
+  // Admin modals (customer mode)
+  const [viewBooking, setViewBooking] = useState(null);
+  const [rescheduleTarget, setRescheduleTarget] = useState(null); // { booking, fromView }
+  const [cancelTarget, setCancelTarget] = useState(null); // { booking, fromView }
+
+  // Success pop-up: { kind: "reschedule" | "cancel", ...props }
   const [confirmation, setConfirmation] = useState(null);
 
-  const open = (kind) => (booking) => setModal({ kind, booking: withLabels(booking) });
-  const closeModal = () => setModal(null);
-  const closeConfirmation = () => setConfirmation(null);
+  const loadBookings = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!user?.id) return;
+      if (!silent) setLoading(true);
+      setLoadError("");
+      try {
+        setBookings(await fetchMyBookings(user.id));
+      } catch (err) {
+        setLoadError(err.message);
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [user?.id]
+  );
 
-  const visible = bookings.filter((b) => filter === "All" || b.status === filter);
+  useEffect(() => {
+    loadBookings();
+    // keep statuses fresh (Reserved -> On-going -> Completed)
+    const timer = setInterval(() => loadBookings({ silent: true }), 60000);
+    return () => clearInterval(timer);
+  }, [loadBookings]);
 
-  const patchBooking = (id, patch) => {
-    setBookings((list) => list.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-    if (attention?.id === id) setAttention(null);
+  // Upcoming first (soonest on top), then past bookings (newest on top)
+  const sorted = useMemo(() => {
+    const upcoming = bookings
+      .filter((b) => b.status === "Reserved" || b.status === "On-going")
+      .sort((a, b) => a.start - b.start);
+    const past = bookings
+      .filter((b) => b.status !== "Reserved" && b.status !== "On-going")
+      .sort((a, b) => b.start - a.start);
+    return [...upcoming, ...past];
+  }, [bookings]);
+
+  const attention = sorted.filter((b) => b.needsAttention);
+  const visible = sorted.filter((b) => matchesFilter(b, filter));
+
+  // ---- Modal handlers ----------------------------------------------------
+  const openReschedule = (booking, fromView = false) => {
+    setViewBooking(null);
+    setRescheduleTarget({ booking, fromView });
+  };
+  const openCancel = (booking, fromView = false) => {
+    setViewBooking(null);
+    setCancelTarget({ booking, fromView });
   };
 
-  const handleReschedule = (booking, { date, time }) => {
-    const end = addHour(time);
-    patchBooking(booking.id, { date, start: time, end, status: "Reserved" });
-    setModal(null);
+  // Errors are thrown back so the modal shows them and stays open
+  const handleConfirmReschedule = async ({ booking, date, startTime, reason, notes }) => {
+    const slot = await customerRescheduleBooking(booking, { date, startTime, reason, notes });
+    await loadBookings({ silent: true });
     setConfirmation({
       kind: "reschedule",
-      newDate: fmtDateLong(date),
-      newTime: fmtRange(time, end),
+      newDate: fmtDateLong(slot.start),
+      newTime: fmtRange(slot.start, slot.end),
       refNo: booking.ref,
     });
   };
 
-  const handleCancel = (booking) => {
-    patchBooking(booking.id, { status: "Cancelled" });
-    setModal(null);
+  const handleConfirmCancel = async ({ booking, reason, notes }) => {
+    await customerCancelBooking(booking, { reason, notes });
+    await loadBookings({ silent: true });
     setConfirmation({
       kind: "cancel",
-      date: fmtDateLong(booking.date),
+      date: fmtDateLong(booking.start),
       time: fmtRange(booking.start, booking.end),
       refNo: booking.ref,
     });
   };
 
+  const closeConfirmation = () => setConfirmation(null);
+
+  // ---- Render ------------------------------------------------------------
   return (
     <main className="bk bk-page">
       <style>{css}</style>
@@ -278,28 +239,36 @@ export default function BookingHistory() {
       <h1 className="bk-page-title">My Bookings</h1>
       <p className="bk-page-sub">View and manage your past and upcoming bookings.</p>
 
-      {attention && (
+      {/* Only shown when something needs action (e.g. the court cancelled a booking because of rain) */}
+      {attention.length > 0 && (
         <section aria-labelledby="bk-attn">
           <h3 id="bk-attn" className="bk-section-title">Needs Your Attention</h3>
-          <div className="bk-attention">
-            <div className="bk-attention-icon" aria-hidden="true">
-              <svg width="48" height="48" viewBox="0 0 48 48">
-                <path d="M24 6 L44 40 H4 Z" fill="#fff" stroke="#fff" strokeWidth="4" strokeLinejoin="round" />
-                <rect x="22" y="17" width="4" height="12" rx="1" fill="#e8a21e" />
-                <rect x="22" y="32" width="4" height="4" rx="1" fill="#e8a21e" />
-              </svg>
-            </div>
-            <div className="bk-attention-main">
-              <span className={`bk-type bk-type--${TYPE_CLASS[attention.type]}`}>{attention.type}</span>
-              <p className="bk-attention-when">
-                {fmtDate(attention.date)} · {fmtRange(attention.start, attention.end)}
-              </p>
-              <p className="bk-attention-note">{attention.notice}</p>
-            </div>
-            <div className="bk-attention-actions">
-              <button type="button" className="bk-btn bk-btn--dark" onClick={() => open("reschedule")(attention)}>Reschedule</button>
-              <button type="button" className="bk-btn bk-btn--outline" onClick={() => open("details")(attention)}>View Details</button>
-            </div>
+          <div className="bk-attention-list">
+            {attention.map((b) => (
+              <div key={b.id} className="bk-attention">
+                <div className="bk-attention-icon" aria-hidden="true">
+                  <svg width="48" height="48" viewBox="0 0 48 48">
+                    <path d="M24 6 L44 40 H4 Z" fill="#fff" stroke="#fff" strokeWidth="4" strokeLinejoin="round" />
+                    <rect x="22" y="17" width="4" height="12" rx="1" fill="#e8a21e" />
+                    <rect x="22" y="32" width="4" height="4" rx="1" fill="#e8a21e" />
+                  </svg>
+                </div>
+                <div className="bk-attention-main">
+                  <span className="bk-type bk-type--rental">Court Rental</span>
+                  <p className="bk-attention-when">
+                    {b.date} · {fmtRange(b.start, b.end)} · Ref: {b.ref}
+                  </p>
+                  <p className="bk-attention-note">
+                    This booking was cancelled by the court{b.cancelReason ? ` (${b.cancelReason})` : ""}. Reschedule
+                    to a new time at no extra charge.
+                  </p>
+                </div>
+                <div className="bk-attention-actions">
+                  <RescheduleButton dark onClick={() => openReschedule(b)} />
+                  <ViewButton onClick={() => setViewBooking(b)} />
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -321,44 +290,81 @@ export default function BookingHistory() {
 
       <h3 className="bk-section-title">Booking Log</h3>
       <div className="bk-list">
-        {visible.length === 0 && <p className="bk-empty">No {filter.toLowerCase()} bookings.</p>}
-        {visible.map((b) => (
-          <BookingRow
-            key={b.id}
-            booking={b}
-            onView={open("details")}
-            onReschedule={open("reschedule")}
-            onCancel={open("cancel")}
-          />
-        ))}
+        {loading && <p className="bk-empty">Loading your bookings...</p>}
+
+        {!loading && loadError && (
+          <div className="bk-empty bk-empty--error">
+            <p>{loadError}</p>
+            <button type="button" className={BTN.outline} onClick={() => loadBookings()}>
+              Try again
+            </button>
+          </div>
+        )}
+
+        {/* No bookings at all yet */}
+        {!loading && !loadError && bookings.length === 0 && (
+          <div className="bk-empty">
+            <p className="bk-empty-title">No bookings yet</p>
+            <p>Bookings you make while logged in will show up here.</p>
+            <button type="button" className={BTN.primary} onClick={() => onNavigateToTab?.("HOME")}>
+              Book a court
+            </button>
+          </div>
+        )}
+
+        {/* Has bookings, but none match the selected filter */}
+        {!loading && !loadError && bookings.length > 0 && visible.length === 0 && (
+          <p className="bk-empty">No {filter.toLowerCase()} bookings.</p>
+        )}
+
+        {!loading &&
+          !loadError &&
+          visible.map((b) => (
+            <BookingRow
+              key={b.id}
+              booking={b}
+              onView={setViewBooking}
+              onReschedule={(booking) => openReschedule(booking)}
+              onCancel={(booking) => openCancel(booking)}
+            />
+          ))}
       </div>
 
-      {modal && (
-        <Overlay onClose={closeModal}>
-          {modal.kind === "details" && (
-            <ModalViewDetails
-              booking={modal.booking}
-              onClose={closeModal}
-              onReschedule={open("reschedule")}
-              onCancel={open("cancel")}
-            />
-          )}
-          {modal.kind === "reschedule" && (
-            <ModalReschedule
-              booking={modal.booking}
-              onClose={closeModal}
-              onConfirm={(data) => handleReschedule(modal.booking, data)}
-            />
-          )}
-          {modal.kind === "cancel" && (
-            <ModalCancelBooking
-              booking={modal.booking}
-              onClose={closeModal}
-              onConfirm={() => handleCancel(modal.booking)}
-            />
-          )}
-        </Overlay>
-      )}
+      {/* Same modals as the admin Bookings page, in customer mode */}
+      <BookingsViewModal
+        isOpen={Boolean(viewBooking)}
+        booking={viewBooking}
+        variant="customer"
+        onClose={() => setViewBooking(null)}
+        onReschedule={(b) => openReschedule(b, true)}
+        onCancel={(b) => openCancel(b, true)}
+      />
+
+      <BookingsRescheduleModal
+        isOpen={Boolean(rescheduleTarget)}
+        booking={rescheduleTarget?.booking || null}
+        fromView={Boolean(rescheduleTarget?.fromView)}
+        variant="customer"
+        onClose={() => setRescheduleTarget(null)}
+        onBack={() => {
+          setViewBooking(rescheduleTarget.booking);
+          setRescheduleTarget(null);
+        }}
+        onConfirmReschedule={handleConfirmReschedule}
+      />
+
+      <BookingsCancelModal
+        isOpen={Boolean(cancelTarget)}
+        booking={cancelTarget?.booking || null}
+        fromView={Boolean(cancelTarget?.fromView)}
+        variant="customer"
+        onClose={() => setCancelTarget(null)}
+        onBack={() => {
+          setViewBooking(cancelTarget.booking);
+          setCancelTarget(null);
+        }}
+        onConfirmCancel={handleConfirmCancel}
+      />
 
       {confirmation && (
         <Overlay onClose={closeConfirmation}>
@@ -374,7 +380,7 @@ export default function BookingHistory() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Styles (shared by the page and all five modals)                     */
+/* Styles (page + the two success pop-ups)                             */
 /* ------------------------------------------------------------------ */
 const css = `
 @import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap");
@@ -407,20 +413,21 @@ const css = `
 
 .bk-type { display: inline-block; padding: 3px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; }
 .bk-type--rental { background: var(--lime); color: var(--ink); }
-.bk-type--play { background: #00e676; color: #fff; }
-.bk-type--event { background: #a855f7; color: #fff; }
 
 .bk-status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; border-radius: 999px; font-size: 14px; font-weight: 600; white-space: nowrap; }
 .bk-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .bk-status--reserved { background: var(--yellow); color: #9a8500; }
+.bk-status--ongoing { background: #bfdbfe; color: #1d4ed8; }
 .bk-status--completed { background: #b9f6a0; color: #2e8b2e; }
 .bk-status--cancelled { background: #ffd6d6; color: var(--red); }
+.bk-status--noshow { background: #e5e7eb; color: #4b5563; }
 
 .bk-page { padding: 0 0 24px; background: transparent; }
 .bk-page-title { font-size: 30px; font-weight: 700; line-height: 1.2; }
 .bk-page-sub { font-size: 15px; margin-top: 4px; }
 .bk-section-title { font-size: 16px; font-weight: 600; color: #666; margin: 28px 0 10px; }
 
+.bk-attention-list { display: flex; flex-direction: column; gap: 12px; }
 .bk-attention { display: flex; align-items: center; gap: 20px; padding: 14px 22px; border-radius: 16px; background: #fff1f1; border: 1px solid #e8b84a; }
 .bk-attention-icon { flex: none; width: 56px; height: 56px; border-radius: 50%; background: #e8a21e; display: grid; place-items: center; }
 .bk-attention-icon svg { width: 36px; height: 36px; }
@@ -435,13 +442,13 @@ const css = `
 .bk-filter:focus-visible { outline: 3px solid var(--lime); box-shadow: 0 0 0 2px var(--ink); }
 
 .bk-list { display: flex; flex-direction: column; gap: 16px; }
-.bk-empty { padding: 24px; text-align: center; color: var(--muted); font-size: 15px; }
+.bk-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 28px 20px; text-align: center; color: var(--muted); font-size: 15px; background: #fff; border: 1px dashed var(--line); border-radius: 18px; }
+.bk-empty-title { font-size: 18px; font-weight: 700; color: var(--ink); }
+.bk-empty--error { color: var(--red); border-color: #f3b4b4; background: #fff1f1; }
 
-.bk-card { --accent: #f6e03d; position: relative; overflow: hidden; display: flex; align-items: center; gap: 20px; padding: 16px 24px 16px 16px; background: #fff; border: 1px solid var(--line); border-radius: 18px; }
+.bk-card { --accent: #f6e03d; position: relative; overflow: hidden; display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; padding: 16px 24px 16px 16px; background: #fff; border: 1px solid var(--line); border-radius: 18px; }
 .bk-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 6px; background: var(--accent); }
 .bk-card--rental { --accent: #f6e03d; }
-.bk-card--play { --accent: #00e676; }
-.bk-card--event { --accent: #a855f7; }
 .bk-card-date { flex: none; width: 64px; display: flex; flex-direction: column; align-items: center; margin-left: 6px; }
 .bk-card-month { font-size: 13px; font-weight: 600; color: #444; }
 .bk-card-day { font-size: 38px; font-weight: 700; line-height: 1; }
@@ -451,7 +458,9 @@ const css = `
 .bk-card-ref { font-size: 13px; padding-left: 10px; margin-top: 2px; }
 .bk-card-price { font-size: 19px; font-weight: 700; white-space: nowrap; }
 .bk-card-actions { display: flex; gap: 8px; }
+.bk-card-hint { flex-basis: 100%; text-align: right; font-size: 12px; color: #6b7280; margin-top: 6px; }
 
+/* Success pop-ups */
 .bk-overlay { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.55); overflow-y: auto; }
 .bk-modal { width: 100%; max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
 .bk-modal--md { max-width: 540px; }
@@ -464,39 +473,6 @@ const css = `
 .bk-modal-body { padding: 16px; overflow-y: auto; }
 .bk-modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
 .bk-footer-group { display: flex; gap: 8px; }
-
-.bk-ref-pill { display: inline-block; padding: 5px 14px; border-radius: 999px; background: var(--cream-deep); font-size: 15px; font-weight: 700; }
-.bk-pill-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.bk-pill-row .bk-status { font-size: 14px; padding: 4px 12px; }
-.bk-meta { font-size: 12px; color: #6b7280; margin-top: 6px; }
-.bk-summary { display: grid; grid-template-columns: 1fr 1.3fr; gap: 12px; margin: 18px 0 18px 4px; }
-.bk-summary h4, .bk-detail h4 { font-size: 12px; font-weight: 600; text-transform: uppercase; color: #4a4a3a; }
-.bk-summary p, .bk-detail p { font-size: 15px; margin-top: 2px; }
-
-.bk-panel { padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--cream); display: flex; flex-direction: column; gap: 12px; }
-.bk-plain-fields { padding: 0 4px; display: flex; flex-direction: column; gap: 12px; }
-.bk-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.bk-field { display: flex; flex-direction: column; gap: 6px; }
-.bk-field > span { font-size: 14px; font-weight: 600; color: #3f3f30; }
-.bk-field--half { width: calc(50% - 6px); }
-.bk-field select, .bk-field input, .bk-field textarea { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--line); background: #fff; color: var(--ink); font-size: 14px; }
-.bk-field textarea { resize: vertical; min-height: 70px; }
-.bk-field ::placeholder { color: #7b7f8a; }
-.bk-field select:has(option[value=""]:checked) { color: #6b7280; }
-.bk-field select:focus-visible, .bk-field input:focus-visible, .bk-field textarea:focus-visible { outline: 3px solid var(--lime); border-color: var(--ink); }
-.bk-policy-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 16px; padding: 0 4px; }
-.bk-policy-row a { color: #1d4ea0; font-size: 14px; }
-.bk-check { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: #444; cursor: pointer; }
-.bk-check input { width: 17px; height: 17px; accent-color: #3b6ff0; }
-
-.bk-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; margin-top: 18px; }
-.bk-note { margin-top: 16px; }
-.bk-note h4 { text-transform: none; }
-.bk-breakdown { margin-top: 20px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--cream); }
-.bk-breakdown-line, .bk-breakdown-total { display: flex; justify-content: space-between; gap: 12px; }
-.bk-breakdown-line { font-size: 14px; color: #444; padding: 2px 0; }
-.bk-breakdown-total { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 16px; font-weight: 700; }
-
 .bk-success { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 14px 8px 4px; }
 .bk-success-icon { width: 80px; height: 80px; }
 .bk-success h2 { font-size: 22px; font-weight: 700; margin-top: 18px; }
@@ -507,19 +483,17 @@ const css = `
 .bk-success-rows dd { text-align: right; }
 
 @media (max-width: 960px) {
-  .bk-card { flex-wrap: wrap; gap: 12px 16px; }
+  .bk-card { gap: 12px 16px; }
   .bk-card-main { flex-basis: calc(100% - 100px); }
   .bk-card-actions { flex-basis: 100%; flex-wrap: wrap; }
+  .bk-card-hint { text-align: left; margin-top: 0; }
   .bk-attention { flex-wrap: wrap; }
   .bk-attention-actions { flex-basis: 100%; }
 }
 @media (max-width: 600px) {
-  .bk-page { padding: 0 0 24px; }
   .bk-page-title { font-size: 26px; }
   .bk-page-sub { font-size: 14px; }
   .bk-filter { padding: 7px 16px; font-size: 14px; }
-  .bk-summary, .bk-detail-grid, .bk-row { grid-template-columns: 1fr; }
-  .bk-field--half { width: 100%; }
   .bk-modal-footer { flex-wrap: wrap; }
   .bk-footer-group { width: 100%; }
   .bk-footer-group .bk-btn { flex: 1; padding-inline: 12px; }

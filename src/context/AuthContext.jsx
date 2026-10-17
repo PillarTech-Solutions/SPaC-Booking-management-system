@@ -363,8 +363,10 @@ export function AuthProvider({ children }) {
           password,
           options: {
             // Stored in user_metadata; a DB trigger can use this to create the profile
-            data: { full_name: cleanName, contact_number: cleanContact },
-            emailRedirectTo: `${window.location.origin}/login`,
+            // account_type tells the database trigger to create the customer_profiles row
+            data: { full_name: cleanName, contact_number: cleanContact, account_type: 'customer' },
+            // Customers return to the customer site after clicking the verification link
+            emailRedirectTo: `${window.location.origin}/customer`,
           },
         });
 

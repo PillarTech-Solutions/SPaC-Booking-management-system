@@ -5,13 +5,19 @@ import BookingStep2 from './BookingStep2';
 import BookingStep3 from './BookingStep3';
 import PaymentPage from './PaymentPage';
 import Receipt from './Receipt';
-
+// ⚠ Adjust if this file is not 3 folders below the project root
+import {
+  calculatePrice,
+  parseHour,
+  verifyPayMongoPayment,
+  toReceiptProps,
+} from '../../../lib/bookingService';
 
 // ---------------------------------------------------------------------------
-// Assets (swap HERO_IMAGE for your own local court photo if you have one)
+// Assets
 // ---------------------------------------------------------------------------
 const HERO_IMAGE = '/bgpic.jpg';
-    
+
 const PREVIEW_IMAGES = [
   {
     id: 1,
@@ -38,6 +44,11 @@ const PREVIEW_IMAGES = [
 const LIME = '#ccff00';
 const INK = '#121212';
 const CARD_BORDER = '#A6A887';
+
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -79,9 +90,6 @@ function CrossedPaddlesIcon({ className = 'w-6 h-6' }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Small building blocks
-// ---------------------------------------------------------------------------
 function GearCard({ icon, name, price }) {
   return (
     <div
@@ -100,49 +108,50 @@ function GearCard({ icon, name, price }) {
   );
 }
 
+function freshBookingData() {
+  const now = new Date();
+  return {
+    day: now.getDate(),
+    month: MONTHS[now.getMonth()],
+    year: now.getFullYear(),
+    startTime: '',
+    duration: 1, // bumped to 2 automatically when a daytime start is picked
+    players: 1,
+    paddles: 0,
+    balls: 0,
+    bookingType: 'Court Rental',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
-export default function Home({ onNavigateToTab, setFocusMode }) {
-  const [currentStep, setCurrentStep] = useState(1); // 1, 2, 3, 'payment', 'receipt'
-    const [policyModalOpen, setPolicyModalOpen] = useState(false);
+// customer: { name, email, phone } of the logged-in customer (null for guests).
+// Passed from CustomerMainForm so the PaymentPage contact form is pre-filled.
+export default function Home({ onNavigateToTab, setFocusMode, customer = null }) {
+  // 1, 2, 3, 'payment', 'verifying', 'receipt'
+  const [currentStep, setCurrentStep] = useState(1);
+  const [policyModalOpen, setPolicyModalOpen] = useState(false);
 
-  const [bookingData, setBookingData] = useState({
-    day: 19,
-    month: 'August',
-    year: 2026,
-    startTime: '08:00 AM',
-    duration: 1,
-    players: 4,
-    paddles: 2,
-    balls: 1,
-    bookingType: 'Court Rental',
-    referenceNumber: 'CR-1009',
-  });
+  const [bookingData, setBookingData] = useState(freshBookingData);
 
-  const [paymentDetails, setPaymentDetails] = useState(null);
+  // Filled after PayMongo confirms the payment
+  const [receipt, setReceipt] = useState(null); // { bookingData, paymentDetails, calculatedTotal }
+  const [paymentNotice, setPaymentNotice] = useState(null); // { type: 'error' | 'info', text }
 
   const bookingCardRef = useRef(null);
 
   const updateBookingData = (updates) => setBookingData((prev) => ({ ...prev, ...updates }));
 
-  // ---- Dynamic total -------------------------------------------------------
-  const NIGHT_SLOTS = ['6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM', '10:00 PM', '11:00 PM', '12:00 AM', '1:00 AM', '2:00 AM'];
-  // normalise "08:00 AM" -> "8:00 AM" so both formats match
-  const normalizedStart = String(bookingData.startTime).replace(/^0/, '');
-  const isNighttime = NIGHT_SLOTS.includes(normalizedStart);
-
-  const ratePerHour = isNighttime ? 300 : 200;
-  const courtCost = (bookingData.duration || 1) * ratePerHour;
-
-  // Capacity: 1 hr -> 4 pax, 2 hrs -> 8 pax, 3+ hrs -> 12 pax
-  const allowedLimit = bookingData.duration === 1 ? 4 : bookingData.duration === 2 ? 8 : 12;
-  const extraPlayers = Math.max(0, (bookingData.players || 4) - allowedLimit);
-  const extraPlayersCost = extraPlayers * 100;
-  const paddlesCost = (bookingData.paddles || 0) * 100;
-  const ballsCost = (bookingData.balls || 0) * 50;
-
-  const calculatedTotal = courtCost + extraPlayersCost + paddlesCost + ballsCost;
+  // ---- Dynamic total (same rules as admin + database) ----------------------
+  const price = calculatePrice({
+    startHour: bookingData.startTime ? parseHour(bookingData.startTime) : 6,
+    duration: bookingData.duration || 1,
+    players: bookingData.players ?? 1,
+    paddles: bookingData.paddles ?? 0,
+    balls: bookingData.balls ?? 0,
+  });
+  const calculatedTotal = price.total;
 
   // ---- Step handlers -------------------------------------------------------
   const scrollToBooking = () => {
@@ -150,38 +159,110 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
   };
 
   const handleRestartBooking = () => {
+    setReceipt(null);
+    setBookingData(freshBookingData());
     setCurrentStep(1);
     setTimeout(scrollToBooking, 50);
   };
 
-    useEffect(() => {
-  setFocusMode?.(currentStep === 'payment' || currentStep === 'receipt');
-  window.scrollTo(0, 0);
-  return () => setFocusMode?.(false);
-}, [currentStep, setFocusMode]);
+  // ---- Coming back from PayMongo (?payment=success&booking=...) -----------
+  // Runs once. (In development React runs effects twice; the ref stops the second
+  // run, which would otherwise find the URL already cleaned and leave the
+  // "Confirming your payment..." screen stuck.)
+  const paymentReturnHandled = useRef(false);
+  useEffect(() => {
+    if (paymentReturnHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get('payment');
+    const bookingId = params.get('booking');
+    if (!result || !bookingId) return;
+    paymentReturnHandled.current = true;
 
+    // clean the URL so a refresh doesn't re-run this
+    window.history.replaceState({}, '', window.location.pathname);
 
+    if (result === 'cancelled') {
+      setPaymentNotice({
+        type: 'info',
+        text: 'Payment was cancelled, so your booking was not completed. The time slot will be released shortly.',
+      });
+      return;
+    }
+
+    setCurrentStep('verifying');
+
+    (async () => {
+      // PayMongo can take a few seconds to mark the payment as paid, so check up to 5 times
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          const res = await verifyPayMongoPayment(bookingId);
+          if (res.status === 'confirmed') {
+            setReceipt(toReceiptProps(res.booking, res.payment));
+            setCurrentStep('receipt');
+            return;
+          }
+          if (res.status === 'conflict') {
+            setPaymentNotice({ type: 'error', text: res.error });
+            setCurrentStep(1);
+            return;
+          }
+        } catch (err) {
+          setPaymentNotice({ type: 'error', text: err.message });
+          setCurrentStep(1);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      setPaymentNotice({
+        type: 'error',
+        text: "We couldn't confirm your payment yet. If you were charged, please contact the court with your reference number.",
+      });
+      setCurrentStep(1);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setFocusMode?.(currentStep === 'payment' || currentStep === 'receipt' || currentStep === 'verifying');
+    window.scrollTo(0, 0);
+    return () => setFocusMode?.(false);
+  }, [currentStep, setFocusMode]);
 
   if (currentStep === 'payment') {
     return (
       <PaymentPage
         bookingData={bookingData}
         calculatedTotal={calculatedTotal}
+        customer={customer}
         onBack={() => setCurrentStep(3)}
-        onPaymentSuccess={(details) => {
-          setPaymentDetails(details);
+        onPaymentSuccess={(receiptProps) => {
+          // used by the simulated payment mode (DEV)
+          setReceipt(receiptProps);
           setCurrentStep('receipt');
         }}
       />
     );
   }
 
-  if (currentStep === 'receipt') {
+  if (currentStep === 'verifying') {
+    return (
+      <div
+        style={{ fontFamily: "'Be Vietnam Pro', sans-serif" }}
+        className="w-full flex flex-col items-center justify-center py-32 text-center"
+      >
+        <div className="w-12 h-12 rounded-full border-4 border-neutral-200 border-t-[#ccff00] animate-spin" />
+        <h2 className="mt-6 text-xl font-bold text-[#121212]">Confirming your payment...</h2>
+        <p className="mt-1 text-sm text-neutral-500">Please don't close this page.</p>
+      </div>
+    );
+  }
+
+  if (currentStep === 'receipt' && receipt) {
     return (
       <Receipt
-        bookingData={bookingData}
-        paymentDetails={paymentDetails}
-        calculatedTotal={calculatedTotal}
+        bookingData={receipt.bookingData}
+        paymentDetails={receipt.paymentDetails}
+        calculatedTotal={receipt.calculatedTotal}
         onBackToBooking={handleRestartBooking}
         onGoToBookings={handleRestartBooking}
       />
@@ -194,58 +275,78 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
       className="w-full min-w-0 flex flex-col gap-10 sm:gap-14 text-neutral-900"
     >
       <div className="relative">
-      {/* 1. HERO */}
-      <section className="relative left-1/2 -translate-x-1/2 w-screen -mt-6 sm:-mt-10 h-[300px] sm:h-[340px] md:h-[380px] bg-neutral-900 z-10">
-        <img src={HERO_IMAGE} alt="Saranay Pickleball Court" className="absolute inset-0 w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-black/55" />
+        {/* 1. HERO */}
+        <section className="relative left-1/2 -translate-x-1/2 w-screen -mt-6 sm:-mt-10 h-[300px] sm:h-[340px] md:h-[380px] bg-neutral-900 z-10">
+          <img src={HERO_IMAGE} alt="Saranay Pickleball Court" className="absolute inset-0 w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/45 via-black/25 to-black/55" />
 
-        <div className="relative z-10 h-full flex flex-col items-center pt-14 sm:pt-20 px-4">
-          <h1 className="text-white text-3xl sm:text-4xl md:text-[42px] font-bold tracking-tight uppercase text-center leading-tight">
-            Saranay Pickleball Court
-          </h1>
+          <div className="relative z-10 h-full flex flex-col items-center pt-14 sm:pt-20 px-4">
+            <h1 className="text-white text-3xl sm:text-4xl md:text-[42px] font-bold tracking-tight uppercase text-center leading-tight">
+              Saranay Pickleball Court
+            </h1>
 
-          <div className="mt-5 w-full max-w-[490px] flex items-center justify-center px-5 py-2.5 rounded-xl border border-white/90 text-white font-bold text-base sm:text-[17px] select-none">
-  Court Rental
-</div>
+            <div className="mt-5 w-full max-w-[490px] flex items-center justify-center px-5 py-2.5 rounded-xl border border-white/90 text-white font-bold text-base sm:text-[17px] select-none">
+              Court Rental
+            </div>
+          </div>
+        </section>
+
+        {/* 2. BOOKING STEPPER CARD */}
+        <div
+          ref={bookingCardRef}
+          id="booking-card"
+          className="relative z-20 w-[92%] md:w-[90%] max-w-[1000px] mx-auto -mt-16 sm:-mt-[68px] bg-white rounded-[28px] sm:rounded-[40px] px-4 sm:px-[29px] py-6 sm:py-8 shadow-[0px_10px_20px_rgba(0,0,0,0.25)]"
+        >
+          {paymentNotice && (
+            <div
+              className={`mb-6 rounded-2xl border px-4 py-3 text-sm flex items-start justify-between gap-3 ${
+                paymentNotice.type === 'error'
+                  ? 'bg-red-50 border-red-200 text-red-700'
+                  : 'bg-[#FBF9EE] border-[#EAE3C6] text-[#6B581B]'
+              }`}
+            >
+              <span>{paymentNotice.text}</span>
+              <button
+                type="button"
+                onClick={() => setPaymentNotice(null)}
+                className="font-bold cursor-pointer shrink-0"
+                aria-label="Dismiss"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {currentStep === 1 && (
+            <BookingStep1
+              bookingData={bookingData}
+              updateBookingData={updateBookingData}
+              onNext={() => setCurrentStep(2)}
+              calculatedTotal={calculatedTotal}
+            />
+          )}
+          {currentStep === 2 && (
+            <BookingStep2
+              bookingData={bookingData}
+              updateBookingData={updateBookingData}
+              onBack={() => setCurrentStep(1)}
+              onNext={() => setCurrentStep(3)}
+              calculatedTotal={calculatedTotal}
+            />
+          )}
+          {currentStep === 3 && (
+            <BookingStep3
+              bookingData={bookingData}
+              onBack={() => setCurrentStep(2)}
+              onConfirm={() => setCurrentStep('payment')}
+              calculatedTotal={calculatedTotal}
+            />
+          )}
         </div>
-      </section>
-
-      {/* 2. BOOKING STEPPER CARD (overlaps hero) --------------------------- */}
-      <div
-        ref={bookingCardRef}
-        id="booking-card"
-        className="relative z-20 w-[92%] md:w-[90%] max-w-[1000px] mx-auto -mt-16 sm:-mt-[68px] bg-white rounded-[28px] sm:rounded-[40px] px-4 sm:px-[29px] py-6 sm:py-8 shadow-[0px_10px_20px_rgba(0,0,0,0.25)]"
-      >
-        {currentStep === 1 && (
-          <BookingStep1
-            bookingData={bookingData}
-            updateBookingData={updateBookingData}
-            onNext={() => setCurrentStep(2)}
-            calculatedTotal={calculatedTotal}
-          />
-        )}
-        {currentStep === 2 && (
-          <BookingStep2
-            bookingData={bookingData}
-            updateBookingData={updateBookingData}
-            onBack={() => setCurrentStep(1)}
-            onNext={() => setCurrentStep(3)}
-            calculatedTotal={calculatedTotal}
-          />
-        )}
-        {currentStep === 3 && (
-          <BookingStep3
-            bookingData={bookingData}
-            onBack={() => setCurrentStep(2)}
-            onConfirm={() => setCurrentStep('payment')}
-            calculatedTotal={calculatedTotal}
-          />
-        )}
-      </div>
       </div>
 
       <div className="flex flex-col gap-10 sm:gap-14 min-w-0">
-        {/* 3. BOOKING POLICY ------------------------------------------------ */}
+        {/* 3. BOOKING POLICY */}
         <div className="w-full bg-[#FBF9EE] border border-[#EAE3C6] rounded-3xl px-6 sm:px-7 py-6">
           <div className="flex items-center gap-2.5 pb-3 border-b border-[#EBDFBF]">
             <div className="w-5 h-5 rounded-full bg-[#94812A] text-white flex items-center justify-center shrink-0">
@@ -271,9 +372,10 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
           </button>
         </div>
 
-        {/* 4. PLAY YOUR WAY ------------------------------------------------- */}
+        {/* 4. PLAY YOUR WAY */}
         <section id="rates-section" className="w-full scroll-mt-[120px]">
-          <h2 className="text-3xl sm:text-[38px] font-bold text-[#121212] tracking-tight leading-tight">Play Your Way</h2>          <p className="text-base sm:text-xl text-[#121212] mt-1 font-normal">
+          <h2 className="text-3xl sm:text-[38px] font-bold text-[#121212] tracking-tight leading-tight">Play Your Way</h2>
+          <p className="text-base sm:text-xl text-[#121212] mt-1 font-normal">
             Straightforward rates for court rentals and gear.
           </p>
 
@@ -295,9 +397,9 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
                 <div>
                   <div className="grid grid-cols-2 gap-2.5">
                     {[
-                      { Icon: Sun, label: 'Daytime', range: '6:00 AM - 6:00 PM', price: '₱200', min: 'min 2 hrs' },
-                      { Icon: Moon, label: 'Nighttime', range: '6:00 PM - 2:00 AM', price: '₱300', min: 'min 1 hr' },
-                    ].map(({ Icon, label, range, price, min }) => (
+                      { Icon: Sun, label: 'Daytime', range: '6:00 AM - 4:00 PM', price: '₱200', min: 'min 2 hrs' },
+                      { Icon: Moon, label: 'Nighttime', range: '4:00 PM - 2:00 AM', price: '₱300', min: 'min 1 hr' },
+                    ].map(({ Icon, label, range, price: p, min }) => (
                       <div key={label} className="border border-neutral-300 rounded-lg px-2.5 py-2">
                         <div className="flex items-center gap-1 text-[10px] text-neutral-700">
                           <Icon className="w-3 h-3" />
@@ -305,7 +407,7 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
                         </div>
                         <div className="flex items-center justify-between mt-1.5">
                           <span className="text-lg sm:text-xl font-bold text-[#121212] leading-none">
-                            {price}
+                            {p}
                             <span className="text-sm font-medium">/hr</span>
                           </span>
                           <div className="flex flex-col items-end gap-1">
@@ -353,7 +455,7 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
               </div>
             </div>
 
-            {/* Paddle & Ball rentals, beside Court Rental */}
+            {/* Paddle & Ball rentals */}
             <div className="lg:col-span-5 flex flex-col gap-3.5">
               <GearCard icon={<PaddleIcon className="w-9 h-9" />} name="Paddle" price="₱100" />
               <GearCard icon={<BallIcon className="w-10 h-10" />} name="Ball" price="₱50" />
@@ -361,7 +463,7 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
           </div>
         </section>
 
-        {/* 5. GALLERY PREVIEW ----------------------------------------------- */}
+        {/* 5. GALLERY PREVIEW */}
         <section className="w-full">
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-5">
             <div>
@@ -398,7 +500,7 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
         </section>
       </div>
 
-      {/* Booking Policy Modal --------------------------------------------- */}
+      {/* Booking Policy Modal */}
       {policyModalOpen && (
         <div
           role="dialog"
@@ -424,33 +526,39 @@ export default function Home({ onNavigateToTab, setFocusMode }) {
 
             <div className="mt-4 space-y-3.5 text-sm text-neutral-700 leading-relaxed max-h-[60vh] overflow-y-auto pr-2">
               <p>
-                <strong>1. Advance Cancellation:</strong> Cancellations made at least 24 hours prior to the reserved
-                start time are eligible for reschedule or credit.
+                <strong>1. Schedule &amp; Rates:</strong>
+                <br />• Open daily, 6:00 AM – 2:00 AM.
+                <br />• Daytime (6:00 AM – 4:00 PM): ₱200/hr, minimum 2 hours.
+                <br />• Nighttime (4:00 PM – 2:00 AM): ₱300/hr, minimum 1 hour.
+                <br />• Bookings are open up to 30 days in advance.
               </p>
               <p>
-                <strong>2. Late Cancellation:</strong> Cancellations made within 24 hours of your reserved schedule
-                cannot be refunded or cancelled.
+                <strong>2. Court Capacity:</strong>
+                <br />• 1 hour: up to 4 players.
+                <br />• 2 hours: up to 8 players.
+                <br />• 3 hours or more: up to 12 players.
+                <br />• Additional players are charged ₱100/person.
               </p>
               <p>
-                <strong>3. Transferability:</strong> You may transfer your booking to another player or representative
-                by notifying us at least 2 hours before play. Payments remain non-refundable.
+                <strong>3. Payment:</strong> Full payment is required to confirm your booking. Payments are
+                non-refundable.
               </p>
               <p>
-                <strong>4. Court Capacity Limits:</strong>
-                <br />• 1 hour: Up to 4 players allowed on court.
-                <br />• 2 hours: Up to 8 players allowed on court.
-                <br />• 3+ hours: Up to 12 players allowed.
-                <br />• Additional guests are charged ₱100/person.
+                <strong>4. Equipment Rental:</strong> Paddles ₱100/session, balls ₱50/session.
               </p>
               <p>
-                <strong>5. Rental Fees &amp; Time Bands:</strong>
-                <br />• Daytime (6:00 AM – 6:00 PM): ₱200/hr (minimum 2 hours required for court rental).
-                <br />• Nighttime (6:00 PM – 2:00 AM): ₱300/hr (1 hour booking is permitted).
-                <br />• Paddles (₱100/session) and balls (₱50/session) are available at the front desk.
+                <strong>5. Cancellation:</strong> Cancellations must be made at least 24 hours before your schedule.
+                Cancellations less than 24 hours before the schedule are not allowed.
               </p>
               <p>
-                <strong>6. Inclement Weather:</strong> For open-air court weather disruptions, bookings will be
-                automatically credited for rescheduling.
+                <strong>6. Rescheduling:</strong> Bookings may be rescheduled at least 24 hours before the schedule,
+                subject to court availability.
+              </p>
+              <p>
+                <strong>7. Rain Policy:</strong>
+                <br />• Rain before your session: your booking will be moved to another available schedule.
+                <br />• Rain during your session: if more than 30 minutes have been played, it counts as 1 hour
+                played; if less than 30 minutes, you get a 1-hour reschedule credit.
               </p>
             </div>
 

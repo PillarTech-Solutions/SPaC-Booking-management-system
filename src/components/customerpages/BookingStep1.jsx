@@ -1,29 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar as CalendarIcon, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
-
-const TIME_SLOTS = [
-  { time: '6:00 AM', status: 'open' },
-  { time: '7:00 AM', status: 'open' },
-  { time: '8:00 AM', status: 'open' },
-  { time: '9:00 AM', status: 'open' },
-  { time: '10:00 AM', status: 'open' },
-  { time: '11:00 AM', status: 'open' },
-  { time: '12:00 PM', status: 'open' },
-  { time: '1:00 PM', status: 'open' },
-  { time: '2:00 PM', status: 'open' },
-  { time: '3:00 PM', status: 'booked' },
-  { time: '4:00 PM', status: 'booked' },
-  { time: '5:00 PM', status: 'booked' },
-  { time: '6:00 PM', status: 'open' },
-  { time: '7:00 PM', status: 'open' },
-  { time: '8:00 PM', status: 'open' },
-  { time: '9:00 PM', status: 'open' },
-  { time: '10:00 PM', status: 'open' },
-  { time: '11:00 PM', status: 'open' },
-  { time: '12:00 AM', status: 'open' },
-  { time: '1:00 AM', status: 'open' },
-  { time: '2:00 AM', status: 'open' },
-];
+// ⚠ Adjust if this file is not 3 folders below the project root
+import {
+  getAvailableStartTimes,
+  calculatePrice,
+  parseHour,
+  minDurationFor,
+  isOutsideBookingWindow,
+  maxBookableDate,
+  RULES,
+} from '../../../lib/bookingService';
 
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = [
@@ -31,38 +17,65 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-// Set to true once you go live so customers can't pick dates that already passed.
-const BLOCK_PAST_DATES = false;
-
 export default function BookingStep1({
   bookingData,
   updateBookingData,
   onNext,
   calculatedTotal,
 }) {
-  const selectedDay = bookingData.day || 19;
-  const selectedMonthIdx = Math.max(0, MONTHS.indexOf(bookingData.month || 'August'));
-  const selectedYear = bookingData.year || 2026;
-  const selectedTime = bookingData.startTime || '08:00 AM';
+  const now = new Date();
+  const selectedDay = bookingData.day ?? now.getDate();
+  const selectedMonthIdx = Math.max(0, MONTHS.indexOf(bookingData.month ?? MONTHS[now.getMonth()]));
+  const selectedYear = bookingData.year ?? now.getFullYear();
+  const selectedTime = bookingData.startTime || '';
   const duration = bookingData.duration || 1;
+  const minDuration = minDurationFor(selectedTime); // 2 for daytime starts, 1 for nighttime
 
-  // The month currently being *viewed* in the calendar (can differ from the selected date's month)
   const [view, setView] = useState({ month: selectedMonthIdx, year: selectedYear });
+  const [times, setTimes] = useState([]);
+  const [loadingTimes, setLoadingTimes] = useState(false);
+  const [timesError, setTimesError] = useState('');
+  const [stepError, setStepError] = useState('');
 
   const daysInMonth = new Date(view.year, view.month + 1, 0).getDate();
-  const firstWeekday = new Date(view.year, view.month, 1).getDay(); // 0 = Sunday
+  const firstWeekday = new Date(view.year, view.month, 1).getDay();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const isSelected = (d) =>
     d === selectedDay && view.month === selectedMonthIdx && view.year === selectedYear;
 
-  const isPast = (d) => BLOCK_PAST_DATES && new Date(view.year, view.month, d) < today;
+  // Past days and days beyond the 30-day booking window are disabled
+  const isPast = (d) => isOutsideBookingWindow({ year: view.year, month: view.month, day: d });
 
+  const lastDay = maxBookableDate();
   const canGoPrev =
-    !BLOCK_PAST_DATES ||
     view.year > today.getFullYear() ||
     (view.year === today.getFullYear() && view.month > today.getMonth());
+  const canGoNext =
+    view.year < lastDay.year || (view.year === lastDay.year && view.month < lastDay.month);
+
+  // Load real availability for the selected date + duration
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingTimes(true);
+    setTimesError('');
+    getAvailableStartTimes({ year: selectedYear, month: selectedMonthIdx, day: selectedDay }, duration)
+      .then((list) => {
+        if (cancelled) return;
+        setTimes(list);
+        // clear the chosen time if it's no longer available
+        if (selectedTime && !list.some((t) => t.label === selectedTime && t.available)) {
+          updateBookingData({ startTime: '' });
+        }
+      })
+      .catch((err) => !cancelled && setTimesError(err.message))
+      .finally(() => !cancelled && setLoadingTimes(false));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear, selectedMonthIdx, selectedDay, duration]);
 
   const changeMonth = (delta) => {
     setView((v) => {
@@ -71,22 +84,45 @@ export default function BookingStep1({
     });
   };
 
-  // Format date display (MM/DD/YYYY)
   const dateFormatted = `${String(selectedMonthIdx + 1).padStart(2, '0')}/${String(selectedDay).padStart(2, '0')}/${selectedYear}`;
 
   const handleDaySelect = (day) => {
-    updateBookingData({ day, month: MONTHS[view.month], year: view.year });
+    setStepError('');
+    updateBookingData({ day, month: MONTHS[view.month], year: view.year, startTime: '' });
   };
 
   const handleTimeSelect = (slot) => {
-    if (slot.status === 'booked') return;
-    updateBookingData({ startTime: slot.time });
+    if (!slot.available) return;
+    setStepError('');
+    // Daytime starts need at least 2 hours, so bump the duration if needed
+    updateBookingData({ startTime: slot.label, duration: Math.max(duration, minDurationFor(slot.label)) });
   };
 
+  // Once a start time is picked, the duration can only go up to the next booking / 2:00 AM closing
+  const selectedSlot = times.find((t) => t.label === selectedTime);
+  const maxDuration = Math.min(8, selectedSlot?.maxHours || 8);
+
   const handleDurationChange = (delta) => {
-    const newDur = Math.max(1, Math.min(8, duration + delta));
+    const newDur = Math.max(minDuration, Math.min(maxDuration, duration + delta));
     updateBookingData({ duration: newDur });
   };
+
+  const handleNext = () => {
+    if (!selectedTime) {
+      setStepError('Please pick an available start time.');
+      return;
+    }
+    onNext();
+  };
+
+  const price = selectedTime ? calculatePrice({ startHour: parseHour(selectedTime), duration }) : null;
+  const rateNote = !price
+    ? ''
+    : price.dayHours && price.nightHours
+    ? `(${price.dayHours} hr daytime ₱${RULES.dayRate} + ${price.nightHours} hr nighttime ₱${RULES.nightRate})`
+    : price.nightHours
+    ? `(Nighttime rate ₱${RULES.nightRate}/hr)`
+    : `(Daytime rate ₱${RULES.dayRate}/hr)`;
 
   return (
     <div className="w-full flex flex-col">
@@ -134,13 +170,11 @@ export default function BookingStep1({
         </p>
       </div>
 
-      {/* Date & Start Time Summary Readouts */}
+      {/* Date & Start Time Summary */}
       <div className="bg-[#F7F6F0] border border-[#E7E5DC] rounded-2xl p-4 sm:p-5 mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-[11px] font-bold text-neutral-600 uppercase tracking-wider mb-1.5">
-              DATE
-            </label>
+            <label className="block text-[11px] font-bold text-neutral-600 uppercase tracking-wider mb-1.5">DATE</label>
             <div className="bg-white border border-neutral-300 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-2xs">
               <span className="text-sm font-semibold text-neutral-800">{dateFormatted}</span>
               <CalendarIcon className="w-4 h-4 text-neutral-500 stroke-[1.8]" />
@@ -148,27 +182,24 @@ export default function BookingStep1({
           </div>
 
           <div>
-            <label className="block text-[11px] font-bold text-neutral-600 uppercase tracking-wider mb-1.5">
-              START TIME
-            </label>
+            <label className="block text-[11px] font-bold text-neutral-600 uppercase tracking-wider mb-1.5">START TIME</label>
             <div className="bg-white border border-neutral-300 rounded-xl px-4 py-2.5 flex items-center justify-between shadow-2xs">
-              <span className="text-sm font-semibold text-neutral-800">{selectedTime}</span>
+              <span className={`text-sm font-semibold ${selectedTime ? 'text-neutral-800' : 'text-neutral-400'}`}>
+                {selectedTime || 'Select a time'}
+              </span>
               <Clock className="w-4 h-4 text-neutral-500 stroke-[1.8]" />
             </div>
           </div>
         </div>
       </div>
 
-      {/* Main Selection Grid (Calendar + Time Slots) */}
+      {/* Calendar + Time Slots */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Left Column: Calendar Picker */}
+        {/* Calendar */}
         <div className="bg-white border border-[#E7E5DC] rounded-2xl p-5 sm:p-6 flex flex-col justify-between shadow-2xs">
           <div>
-            <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-3">
-              SELECT DATE
-            </div>
+            <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-3">SELECT DATE</div>
 
-            {/* Month Header with working navigation */}
             <div className="flex items-center justify-between mb-4">
               <button
                 type="button"
@@ -185,23 +216,20 @@ export default function BookingStep1({
               <button
                 type="button"
                 onClick={() => changeMonth(1)}
-                className="w-8 h-8 rounded-lg border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-100 transition-colors cursor-pointer"
+                disabled={!canGoNext}
+                className="w-8 h-8 rounded-lg border border-neutral-200 flex items-center justify-center text-neutral-600 hover:bg-neutral-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 aria-label="Next month"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Days of Week */}
             <div className="grid grid-cols-7 gap-1 text-center mb-2">
               {DAYS_OF_WEEK.map((day) => (
-                <div key={day} className="text-xs font-semibold text-neutral-500 py-1">
-                  {day}
-                </div>
+                <div key={day} className="text-xs font-semibold text-neutral-500 py-1">{day}</div>
               ))}
             </div>
 
-            {/* Calendar days, generated for whichever month is being viewed */}
             <div className="grid grid-cols-7 gap-y-2 gap-x-1 text-center">
               {Array.from({ length: firstWeekday }).map((_, i) => (
                 <div key={`blank-${i}`} />
@@ -231,37 +259,40 @@ export default function BookingStep1({
           </div>
         </div>
 
-        {/* Right Column: Time Slot Picker & Duration */}
+        {/* Time Slots & Duration */}
         <div className="bg-white border border-[#E7E5DC] rounded-2xl p-5 sm:p-6 flex flex-col justify-between shadow-2xs">
           <div>
-            <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-3">
-              SELECT START TIME
-            </div>
+            <div className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-3">SELECT START TIME</div>
 
-            <div className="grid grid-cols-3 gap-2">
-              {TIME_SLOTS.map((slot) => {
-                const selected = selectedTime === slot.time;
-                const isBooked = slot.status === 'booked';
-
-                return (
-                  <button
-                    key={slot.time}
-                    type="button"
-                    disabled={isBooked}
-                    onClick={() => handleTimeSelect(slot)}
-                    className={`py-2 px-1 text-xs font-semibold rounded-lg transition-all text-center select-none ${
-                      selected
-                        ? 'bg-[#ccff00] border-2 border-[#ccff00] text-black font-bold shadow-xs'
-                        : isBooked
-                        ? 'bg-neutral-300 text-neutral-500 cursor-not-allowed border border-neutral-300'
-                        : 'bg-white border border-neutral-300 text-neutral-800 hover:border-black cursor-pointer'
-                    }`}
-                  >
-                    {slot.time}
-                  </button>
-                );
-              })}
-            </div>
+            {loadingTimes ? (
+              <p className="text-sm text-neutral-500 py-6 text-center">Checking availability...</p>
+            ) : timesError ? (
+              <p className="text-sm text-red-600 py-6 text-center">{timesError}</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {times.map((slot) => {
+                  const selected = selectedTime === slot.label;
+                  return (
+                    <button
+                      key={slot.label}
+                      type="button"
+                      disabled={!slot.available}
+                      onClick={() => handleTimeSelect(slot)}
+                      title={slot.reason || ''}
+                      className={`py-2 px-1 text-xs font-semibold rounded-lg transition-all text-center select-none ${
+                        selected
+                          ? 'bg-[#ccff00] border-2 border-[#ccff00] text-black font-bold shadow-xs'
+                          : !slot.available
+                          ? 'bg-neutral-300 text-neutral-500 cursor-not-allowed border border-neutral-300'
+                          : 'bg-white border border-neutral-300 text-neutral-800 hover:border-black cursor-pointer'
+                      }`}
+                    >
+                      {slot.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Legend */}
             <div className="flex items-center justify-center gap-6 mt-4 pt-2 text-xs text-neutral-600">
@@ -271,25 +302,28 @@ export default function BookingStep1({
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-neutral-400" />
-                <span>Booked</span>
+                <span>Unavailable</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full bg-[#ccff00]" />
                 <span>Selected</span>
               </div>
             </div>
+            <p className="text-[11px] text-neutral-500 text-center mt-2">
+              Daytime (6 AM – 4 PM) needs at least 2 hours. Nighttime (4 PM – 2 AM) allows 1 hour.
+              <br />
+              Bookings are open up to {RULES.bookingWindowDays} days in advance.
+            </p>
           </div>
 
-          {/* Duration Stepper */}
+          {/* Duration */}
           <div className="border-t border-neutral-100 pt-4 mt-4">
-            <div className="text-[11px] font-bold text-neutral-800 uppercase tracking-wider mb-2">
-              DURATION (HOURS)
-            </div>
+            <div className="text-[11px] font-bold text-neutral-800 uppercase tracking-wider mb-2">DURATION (HOURS)</div>
             <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => handleDurationChange(-1)}
-                disabled={duration <= 1}
+                disabled={duration <= minDuration}
                 className="w-11 h-11 rounded-xl border border-neutral-300 flex items-center justify-center text-lg font-bold text-neutral-800 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                 aria-label="Decrease hours"
               >
@@ -301,28 +335,24 @@ export default function BookingStep1({
               <button
                 type="button"
                 onClick={() => handleDurationChange(1)}
-                disabled={duration >= 8}
+                disabled={duration >= maxDuration}
                 className="w-11 h-11 rounded-xl border border-neutral-300 flex items-center justify-center text-lg font-bold text-neutral-800 hover:bg-neutral-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
                 aria-label="Increase hours"
               >
                 +
               </button>
-              <span className="text-xs text-neutral-500 ml-2">
-                {selectedTime.includes('AM') || ['12:00 PM', '1:00 PM', '2:00 PM', '3:00 PM', '4:00 PM', '5:00 PM'].includes(selectedTime)
-                  ? '(Daytime rate ₱200/hr)'
-                  : '(Nighttime rate ₱300/hr)'}
-              </span>
+              {selectedTime && <span className="text-xs text-neutral-500 ml-2">{rateNote}</span>}
             </div>
           </div>
         </div>
       </div>
 
+      {stepError && <p className="text-sm text-red-600 font-semibold mb-3">{stepError}</p>}
+
       {/* Bottom Action Bar */}
       <div className="bg-[#111411] text-white rounded-2xl px-6 py-5 flex items-center justify-between shadow-md">
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">
-            TOTAL AMOUNT
-          </div>
+          <div className="text-[10px] font-bold uppercase tracking-widest text-neutral-400">TOTAL AMOUNT</div>
           <div className="text-2xl sm:text-[30px] font-extrabold text-[#ccff00] leading-none mt-1">
             ₱{calculatedTotal.toFixed(2)}
           </div>
@@ -330,7 +360,7 @@ export default function BookingStep1({
 
         <button
           type="button"
-          onClick={onNext}
+          onClick={handleNext}
           className="bg-[#ccff00] hover:bg-[#b8e600] text-black font-extrabold px-8 py-2.5 rounded-full text-sm sm:text-base shadow-md cursor-pointer transition-all hover:scale-105 active:scale-95"
         >
           Next
